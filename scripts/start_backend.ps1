@@ -13,6 +13,6 @@ New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
 
 $env:PYTHONUNBUFFERED = "1"
 $ErrorActionPreference = "Continue"
-& $Python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 `
+& $Python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 `
     >> (Join-Path $LogDir "backend_autostart.out.log") `
     2>> (Join-Path $LogDir "backend_autostart.err.log")

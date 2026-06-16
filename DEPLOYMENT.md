@@ -13,6 +13,20 @@ Open:
 http://127.0.0.1:8000/?v=20260614_all_pages_fix_final
 ```
 
+For another computer on the same network, run the backend on all interfaces:
+
+```powershell
+python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000
+```
+
+Then open the dashboard using this computer's LAN IP, for example:
+
+```text
+http://172.10.11.162:8000/?v=20260614_all_pages_fix_final
+```
+
+If another computer cannot open it, allow inbound TCP port `8000` in Windows Firewall.
+
 ## Backend: Auto-Start On Windows Login
 
 Run once:
@@ -52,3 +66,5 @@ http://127.0.0.1:8000
 ```
 
 when it is opened from Vercel.
+
+Because `127.0.0.1` always means the current computer, the Vercel frontend only works on another computer if that computer also has the backend running locally, or if `DASHBOARD_API_BASE` is configured to a public backend URL.
