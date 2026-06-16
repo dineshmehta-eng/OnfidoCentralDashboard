@@ -45,6 +45,9 @@ def startup_event():
     if use_mock:
         logger.info("Skipping SQL dashboard pre-warm in MOCK mode")
         return
+    if os.getenv("PREWARM_DASHBOARD", "false").lower() not in ("1", "true", "yes"):
+        logger.info("Skipping blocking SQL dashboard pre-warm")
+        return
     try:
         logger.info("Pre-warming dashboard cache...")
         data = dashboard_service.get_dashboard_data({})
@@ -122,6 +125,7 @@ def init_data():
             ("AM", "ams"),
             ("QA_Name", "qas"),
             ("Category", "categories"),
+            ("AON_Wise", "aons"),
             ("Location", "locations"),
             ("Month", "months"),
         ]:
@@ -177,12 +181,12 @@ def dashboard(filters: dict = Body(default={})):
 @app.get("/api/etm")
 def etm():
     if use_mock:
-        return mock_store.get_etm()
+        return mock_store.get_etm({})
     try:
         cache_key = "etm"
         if cache_key in cache:
             return cache[cache_key]
-        data = etm_service.get_etm_data()
+        data = etm_service.get_etm_data({})
         cache[cache_key] = data
         return data
     except Exception as e:
@@ -190,14 +194,14 @@ def etm():
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
 @app.post("/api/etm")
-def etm_post():
+def etm_post(filters: dict = Body(default={})):
     if use_mock:
-        return mock_store.get_etm()
+        return mock_store.get_etm(filters)
     try:
-        cache_key = "etm"
+        cache_key = "etm_" + json.dumps(filters, sort_keys=True, default=str)
         if cache_key in cache:
             return cache[cache_key]
-        data = etm_service.get_etm_data()
+        data = etm_service.get_etm_data(filters)
         cache[cache_key] = data
         return data
     except Exception as e:
@@ -257,6 +261,10 @@ def attrition(filters: dict = Body(default={})):
         if cache_key in cache:
             return cache[cache_key]
         rows = fetch_all("SELECT * FROM vw_agent_wise")
+        from filtering import apply_filters, enrich_rows_with_filter_metadata, has_dimension_filters
+        if has_dimension_filters(filters):
+            rows = enrich_rows_with_filter_metadata(rows)
+        rows = apply_filters(rows, filters)
         data = {"success": True, "attrition": rows, "count": len(rows)}
         cache[cache_key] = data
         return data

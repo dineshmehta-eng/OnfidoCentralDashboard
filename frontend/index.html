@@ -5704,7 +5704,25 @@ document.addEventListener('DOMContentLoaded',function(){setTimeout(function(){lo
   };
 
   var oldApplyF = window.applyF;
+  function resetFilteredLazyPages(){
+    try{
+      window._processOverviewLoaded=false;
+      window._etmTaskSkipLoaded=false;
+      window._liveLoaded=false;
+      window._attrLoaded=false;
+      window._slotUtilLoaded=false;
+      if(window._d){
+        delete _d.processOverview;
+        delete _d.etm;
+        delete _d.taskSkip;
+        delete _d.liveDashboard;
+        delete _d.attrition;
+        delete _d.slotUtil;
+      }
+    }catch(e){}
+  }
   window.applyF = function(forceRefresh){
+    resetFilteredLazyPages();
     var ret = (typeof oldApplyF==='function') ? oldApplyF(forceRefresh) : undefined;
     var active=document.querySelector('.tab.active');
     var id=active && active.getAttribute('data-v');
@@ -5713,6 +5731,15 @@ document.addEventListener('DOMContentLoaded',function(){setTimeout(function(){lo
     }
     if(id==='etm' || id==='taskskip'){
       setTimeout(function(){try{window._etmTaskSkipLoaded=false; loadETMTaskSkipPage(!!forceRefresh);}catch(e){}},300);
+    }
+    if(id==='livedashboard'){
+      setTimeout(function(){try{window._liveLoaded=false; loadLiveDashboardPage(!!forceRefresh,false);}catch(e){}},300);
+    }
+    if(id==='slotutil'){
+      setTimeout(function(){try{window._slotUtilLoaded=false; loadSlotUtilPage(!!forceRefresh,false);}catch(e){}},300);
+    }
+    if(id==='attrition'){
+      setTimeout(function(){try{window._attrLoaded=false; loadAttritionPage(!!forceRefresh);}catch(e){}},300);
     }
     return ret;
   };
@@ -5723,7 +5750,7 @@ document.addEventListener('DOMContentLoaded',function(){setTimeout(function(){lo
     GAS.run('hardResetAndRefreshDashboard',[],function(d){
       hideL();
       if(!d || d.success===false){ alert('Hard reset failed: '+(d&&d.error?d.error:'No data returned')); return; }
-      window._etmTaskSkipLoaded=false; window._liveLoaded=false; window._slotUtilLoaded=false;
+      window._etmTaskSkipLoaded=false; window._liveLoaded=false; window._slotUtilLoaded=false; window._attrLoaded=false; window._processOverviewLoaded=false;
       alert((d.message||'Dashboard cache rebuilt.') + (d.etmWarning ? '\n\nETM warning: '+d.etmWarning : ''));
       try{ GAS.run('appGetWarmDashboardData',[false],window.onWarmLoad,function(){}); }catch(e){}
     },function(e){ hideL(); alert('Hard reset server error: '+(e&&e.message?e.message:e)); });

@@ -1,5 +1,6 @@
 from db import fetch_all
 from typing import Dict, Any
+from filtering import apply_filters, enrich_rows_with_filter_metadata, has_dimension_filters
 
 def get_live_data(filters: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -36,11 +37,17 @@ def get_live_data(filters: Dict[str, Any]) -> Dict[str, Any]:
     except Exception:
         doc_etm = []
 
+    if has_dimension_filters(filters):
+        doc_etm = enrich_rows_with_filter_metadata(doc_etm)
+        audits = enrich_rows_with_filter_metadata(audits)
+        poa_live = enrich_rows_with_filter_metadata(poa_live)
+        apr = enrich_rows_with_filter_metadata(apr)
+
     sheets = {
-        "DOC Live AHT": doc_etm,
-        "Audits": audits,
-        "POA Live": poa_live,
-        "APR": apr
+        "DOC Live AHT": apply_filters(doc_etm, filters),
+        "Audits": apply_filters(audits, filters),
+        "POA Live": apply_filters(poa_live, filters),
+        "APR": apply_filters(apr, filters)
     }
     live = []
     for sheet_name in ["DOC Live AHT", "Audits", "POA Live", "APR"]:

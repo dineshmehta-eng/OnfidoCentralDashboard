@@ -2,6 +2,7 @@ import os
 from db import fetch_all
 from typing import Dict, Any
 from datetime import datetime, timedelta
+from filtering import apply_filters, enrich_rows_with_filter_metadata, has_dimension_filters
 
 def _count_month_day(rows: list, month_col: str = "month", date_col: str = "date") -> Dict[str, Any]:
     """Count rows by current month and yesterday from text date fields."""
@@ -38,7 +39,7 @@ def _count_month_day(rows: list, month_col: str = "month", date_col: str = "date
     }
 
 
-def get_etm_data() -> Dict[str, Any]:
+def get_etm_data(filters: Dict[str, Any] | None = None) -> Dict[str, Any]:
     try:
         doc_etm = fetch_all("SELECT * FROM vw_doc_etm ORDER BY date DESC")
     except Exception:
@@ -53,6 +54,14 @@ def get_etm_data() -> Dict[str, Any]:
         task_skip = fetch_all("SELECT * FROM vw_doc_task_skip ORDER BY date DESC")
     except Exception:
         task_skip = []
+
+    if has_dimension_filters(filters):
+        doc_etm = enrich_rows_with_filter_metadata(doc_etm)
+        poa_etm = enrich_rows_with_filter_metadata(poa_etm)
+        task_skip = enrich_rows_with_filter_metadata(task_skip)
+    doc_etm = apply_filters(doc_etm, filters)
+    poa_etm = apply_filters(poa_etm, filters)
+    task_skip = apply_filters(task_skip, filters)
 
     # Compute analytics for DOC ETM
     doc_a = _count_month_day(doc_etm)

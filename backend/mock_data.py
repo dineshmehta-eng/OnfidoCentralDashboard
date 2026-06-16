@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List
 
 from utils.dates import get_current_month_str
+from filtering import apply_filters, filter_value
 
 MONTHS = ["Jan-26", "Feb-26", "Mar-26", "Apr-26", "May-26"]
 PROCESS_OVERVIEW_REFERENCE = {
@@ -147,11 +148,7 @@ class MockStore:
 
     def get_dashboard(self, filters: Dict[str, Any]) -> Dict[str, Any]:
         def fval(*keys):
-            for key in keys:
-                value = filters.get(key)
-                if value is not None and str(value).strip():
-                    return str(value).strip()
-            return ""
+            return filter_value(filters, *keys)
 
         date_from = (filters.get("from") or filters.get("date_from") or "").strip()
         date_to = (filters.get("to") or filters.get("date_to") or "").strip()
@@ -501,7 +498,7 @@ class MockStore:
             "alerts": {"alerts": alerts}
         }
 
-    def get_etm(self) -> Dict[str, Any]:
+    def get_etm(self, filters: Dict[str, Any] | None = None) -> Dict[str, Any]:
         doc, poa, skip = [], [], []
         task_types = ["Extraction Task", "Fraud Task", "Raw_Extraction Task", "Classification Task", "Address_Extraction Task", "Consistency Task", "Labelling Raw_Ext Task"]
         for month in MONTHS:
@@ -513,7 +510,9 @@ class MockStore:
                     "month": month,
                     "am_name": AMS[i % len(AMS)],
                     "tl_name": TLS[i % len(TLS)],
+                    "qa_name": QAS[i % len(QAS)],
                     "aon": AONS[i % len(AONS)],
+                    "Category": CATEGORIES[i % len(CATEGORIES)],
                     "task_information_analyst_email": analyst,
                     "client_information_ims_client_name": f"Client_{(i % 4) + 1}",
                     "ims_client_ims_client_name": f"Client_{(i % 4) + 1}",
@@ -532,8 +531,14 @@ class MockStore:
                     "manual_tasks_events_event_data_task_type": task_types[i % len(task_types)],
                     "am_s_name": AMS[i % len(AMS)],
                     "tl_s_name": TLS[i % len(TLS)],
+                    "qa_name": QAS[i % len(QAS)],
+                    "aon": AONS[i % len(AONS)],
+                    "Category": CATEGORIES[i % len(CATEGORIES)],
                     "slot": f"{6 + (i % 4):02d}:00-{7 + (i % 4):02d}:00",
                 })
+        doc = apply_filters(doc, filters)
+        poa = apply_filters(poa, filters)
+        skip = apply_filters(skip, filters)
         return {"success": True, "etm": {"doc_etm": doc, "poa_etm": poa}, "taskSkip": {"task_skip": skip}}
 
     def search_analyst(self, email: str) -> Dict[str, Any]:
@@ -676,9 +681,9 @@ class MockStore:
         def common_row(sheet: str, analyst: str, idx: int) -> Dict[str, Any]:
             dt = base_date + timedelta(days=idx % 28)
             date_text = dt.strftime("%Y-%m-%d")
-            am = random.choice(AMS)
-            tl = random.choice(TLS)
-            aon = random.choice(AONS)
+            am = AMS[idx % len(AMS)]
+            tl = TLS[idx % len(TLS)]
+            aon = AONS[idx % len(AONS)]
             aht = random.randint(35, 125)
             return {
                 "source": sheet,
@@ -686,7 +691,9 @@ class MockStore:
                 "month": MONTHS[-1],
                 "am_name": am,
                 "tl_name": tl,
+                "qa_name": QAS[idx % len(QAS)],
                 "aon": aon,
+                "Category": CATEGORIES[idx % len(CATEGORIES)],
                 "slot": random.choice(slots),
                 "task_information_analyst_email": analyst,
                 "task_information_task_type_old": random.choice(task_types),
@@ -734,10 +741,10 @@ class MockStore:
                 apr_rows.append(apr)
 
         sheets = {
-            "DOC Live AHT": doc_rows,
-            "Audits": audit_rows,
-            "POA Live": poa_rows,
-            "APR": apr_rows,
+            "DOC Live AHT": apply_filters(doc_rows, filters),
+            "Audits": apply_filters(audit_rows, filters),
+            "POA Live": apply_filters(poa_rows, filters),
+            "APR": apply_filters(apr_rows, filters),
         }
         live = []
         for sheet_name in order:
@@ -745,12 +752,39 @@ class MockStore:
         return {"success": True, "order": order, "sheets": sheets, "live": live, "count": len(live)}
 
     def get_slot_util(self, filters: Dict[str, Any]) -> Dict[str, Any]:
-        slot = [{"Slot": random.choice(["Morning", "Evening"]), "Analyst_Email": a, "Tasks": random.randint(10, 80), "Month": "Jun-26"} for a in ANALYSTS for _ in range(2)]
-        util = [{"Analyst_Email": a, "Utilization": round(random.uniform(0.6, 1.0), 2), "Month": "Jun-26"} for a in ANALYSTS]
+        slot = []
+        util = []
+        for i, analyst in enumerate(ANALYSTS):
+            base = {
+                "Analyst_Email": analyst,
+                "AM": AMS[i % len(AMS)],
+                "TL_Name": TLS[i % len(TLS)],
+                "QA_Name": QAS[i % len(QAS)],
+                "AON_Wise": AONS[i % len(AONS)],
+                "Category": CATEGORIES[i % len(CATEGORIES)],
+                "Month": "Jun-26",
+            }
+            for _ in range(2):
+                slot.append({"Slot": random.choice(["Morning", "Evening"]), "Tasks": random.randint(10, 80), **base})
+            util.append({"Utilization": round(random.uniform(0.6, 1.0), 2), **base})
+        slot = apply_filters(slot, filters)
+        util = apply_filters(util, filters)
         return {"success": True, "slotWisePerformance": slot, "utilization": util}
 
     def get_attrition(self, filters: Dict[str, Any]) -> Dict[str, Any]:
-        rows = [{"Analyst_Email": a, "Tenure_Months": random.randint(1, 24), "Attrition_Risk": random.choice(["Low", "Medium", "High"])} for a in ANALYSTS]
+        rows = []
+        for i, analyst in enumerate(ANALYSTS):
+            rows.append({
+                "Analyst_Email": analyst,
+                "AM": AMS[i % len(AMS)],
+                "TL_Name": TLS[i % len(TLS)],
+                "QA_Name": QAS[i % len(QAS)],
+                "AON_Wise": AONS[i % len(AONS)],
+                "Category": CATEGORIES[i % len(CATEGORIES)],
+                "Tenure_Months": random.randint(1, 24),
+                "Attrition_Risk": random.choice(["Low", "Medium", "High"]),
+            })
+        rows = apply_filters(rows, filters)
         return {"success": True, "attrition": rows, "count": len(rows)}
 
     def get_health(self) -> Dict[str, Any]:

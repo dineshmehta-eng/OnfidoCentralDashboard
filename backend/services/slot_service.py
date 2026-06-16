@@ -1,5 +1,6 @@
 from db import fetch_all
 from typing import Dict, Any
+from filtering import apply_filters, enrich_rows_with_filter_metadata, has_dimension_filters
 
 def _analytics(rows: list[dict], source: str) -> Dict[str, Any]:
     latest_sync = ""
@@ -69,6 +70,12 @@ def get_slot_utilization(filters: Dict[str, Any]) -> Dict[str, Any]:
             """)
         except Exception:
             util = []
+
+    if has_dimension_filters(filters):
+        slot_perf = enrich_rows_with_filter_metadata(slot_perf)
+        util = enrich_rows_with_filter_metadata(util)
+    slot_perf = apply_filters(slot_perf, filters)
+    util = apply_filters(util, filters)
 
     return {
         "success": True,

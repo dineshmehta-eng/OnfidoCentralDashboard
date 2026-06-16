@@ -49,13 +49,13 @@ def dashboard(filters: dict = Body(default={})):
 @app.get("/etm")
 @app.get("/api/etm")
 def etm_get():
-    return mock_store.get_etm()
+    return mock_store.get_etm({})
 
 
 @app.post("/etm")
 @app.post("/api/etm")
-def etm_post():
-    return mock_store.get_etm()
+def etm_post(filters: dict = Body(default={})):
+    return mock_store.get_etm(filters or {})
 
 
 @app.get("/analyst-search")

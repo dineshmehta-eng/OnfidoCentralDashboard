@@ -631,7 +631,14 @@
     return apiCache.initPayload;
   }
   function filtersFromArgs(args){
-    var f = (args && args[0]) || {};
+    var first = args && args[0];
+    var f = {};
+    if(first && typeof first === "object" && !Array.isArray(first)){
+      f = first;
+    } else {
+      f = Object.assign({}, window._f || {});
+      if(typeof first === "boolean") f.forceRefresh = first;
+    }
     var init = apiCache.init || {};
     var from = f.from || f.date_from || "";
     var to = f.to || f.date_to || "";
@@ -659,28 +666,36 @@
     }
     return apiCache[key];
   }
-  async function etm(){
-    if(!apiCache.etm){
-      apiCache.etm = post("/api/etm", {}).then(function(d){
+  async function etm(args){
+    var f = filtersFromArgs(args);
+    var key = "etm:" + JSON.stringify(f);
+    if(!apiCache[key]){
+      apiCache[key] = post("/api/etm", f).then(function(d){
         var doc = etmPayload(((d.etm || {}).doc_etm) || (((d.etm || {}).doc || {}).rows) || [], "DOC ETM", "etm");
         var poa = etmPayload(((d.etm || {}).poa_etm) || (((d.etm || {}).poa || {}).rows) || [], "POA ETM", "etm");
         var skip = etmPayload(((d.taskSkip || {}).task_skip) || ((d.taskSkip || {}).rows) || [], "Task Skip", "skip");
         return {success:true, etm:{doc:doc, poa:poa, doc_etm:doc.rows, poa_etm:poa.rows}, taskSkip:skip};
       });
     }
-    return apiCache.etm;
+    return apiCache[key];
   }
-  async function slot(){
-    if(!apiCache.slot) apiCache.slot = post("/api/slot-utilization", {}).then(slotCompat);
-    return apiCache.slot;
+  async function slot(args){
+    var f = filtersFromArgs(args);
+    var key = "slot:" + JSON.stringify(f);
+    if(!apiCache[key]) apiCache[key] = post("/api/slot-utilization", f).then(slotCompat);
+    return apiCache[key];
   }
-  async function live(){
-    if(!apiCache.live) apiCache.live = post("/api/live-dashboard", {});
-    return apiCache.live;
+  async function live(args){
+    var f = filtersFromArgs(args);
+    var key = "live:" + JSON.stringify(f);
+    if(!apiCache[key]) apiCache[key] = post("/api/live-dashboard", f);
+    return apiCache[key];
   }
-  async function attrition(){
-    if(!apiCache.attrition) apiCache.attrition = post("/api/attrition", {}).then(attritionCompat);
-    return apiCache.attrition;
+  async function attrition(args){
+    var f = filtersFromArgs(args);
+    var key = "attrition:" + JSON.stringify(f);
+    if(!apiCache[key]) apiCache[key] = post("/api/attrition", f).then(attritionCompat);
+    return apiCache[key];
   }
   async function analystSearch(args){
     var q = text(args && args[0]);
@@ -690,26 +705,32 @@
   async function warm(){
     var init = await initPayload();
     var dash = await dashboard([{month:init.currentMonth}]);
-    var e = await etm();
+    var e = await etm([{month:init.currentMonth}]);
     return {success:true, init:init, dashboard:dash, etmData:e, fastStaged:true};
   }
   var handlers = {
     appGetWarmDashboardData: function(){ return warm(); },
     setupPermanentDashboardCache: function(){ return warm(); },
     appGetDashboard: function(args){ return dashboard(args); },
-    appGetETMData: function(){ return etm(); },
-    appGetSlotUtilData: function(){ return slot(); },
-    appGetAttritionData: function(){ return attrition(); },
-    appGetLiveDashboardCachedData: async function(){ var d=await live(); return {success:true, order:d.order || ["DOC Live AHT","Audits","POA Live","APR"], sheets:{}}; },
-    appGetLiveDashboardSheetData: async function(args){ var d=await live(); return liveSheetPayload(args && args[0], d); },
+    appGetETMData: function(args){ return etm(args); },
+    appGetSlotUtilData: function(args){ return slot(args); },
+    appGetAttritionData: function(args){ return attrition(args); },
+    appGetLiveDashboardCachedData: async function(args){ var d=await live(args); return {success:true, order:d.order || ["DOC Live AHT","Audits","POA Live","APR"], sheets:{}}; },
+    appGetLiveDashboardSheetData: async function(args){
+      var sheet = args && args[0];
+      var f = Object.assign({}, window._f || {});
+      if(args && typeof args[1] === "boolean") f.forceRefresh = args[1];
+      var d=await live([f]);
+      return liveSheetPayload(sheet, d);
+    },
     appGetProcessOverviewData: async function(args){
       var init = await initPayload();
       var f = filtersFromArgs(args);
       if(!f.month && !f.from && !f.to) f.month = init.currentMonth || "";
       var d = await dashboard([f]);
-      var e = await etm();
-      var s = await slot();
-      var a = await attrition();
+      var e = await etm([f]);
+      var s = await slot([f]);
+      var a = await attrition([f]);
       return processOverviewCompat(d, e, s, a);
     },
     appInvalidateCache: function(){ apiCache = {}; return Promise.resolve({success:true}); },
