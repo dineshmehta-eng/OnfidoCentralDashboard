@@ -3,11 +3,6 @@
 
   var apiCache = {};
   var defaultApiBase = "";
-  try {
-    if (!/^(127\.0\.0\.1|localhost|0\.0\.0\.0)$/i.test(location.hostname)) {
-      defaultApiBase = "http://127.0.0.1:8000";
-    }
-  } catch(e) {}
   var hasConfiguredApiBase = false;
   try {
     hasConfiguredApiBase = Object.prototype.hasOwnProperty.call(window, "DASHBOARD_API_BASE");

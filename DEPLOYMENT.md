@@ -50,8 +50,8 @@ This repo contains a Vercel static frontend and a Vercel FastAPI entrypoint in `
 In Vercel, import the GitHub repo and set:
 
 - Framework Preset: `Other`
-- Build Command: `npm run build`
-- Output Directory: `public`
+- Build Command: leave empty
+- Output Directory: leave empty
 
 The public Vercel frontend uses same-origin API calls:
 
