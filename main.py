@@ -28,51 +28,61 @@ app.add_middleware(
 )
 
 
+@app.get("/health")
 @app.get("/api/health")
 def health():
     return mock_store.get_health()
 
 
+@app.get("/init")
 @app.get("/api/init")
 def init_data():
     return mock_store.get_init()
 
 
+@app.post("/dashboard")
 @app.post("/api/dashboard")
 def dashboard(filters: dict = Body(default={})):
     return mock_store.get_dashboard(filters or {})
 
 
+@app.get("/etm")
 @app.get("/api/etm")
 def etm_get():
     return mock_store.get_etm()
 
 
+@app.post("/etm")
 @app.post("/api/etm")
 def etm_post():
     return mock_store.get_etm()
 
 
+@app.get("/analyst-search")
 @app.get("/api/analyst-search")
 def analyst_search(email: str = Query(...)):
     return mock_store.search_analyst(email)
 
 
+@app.post("/live-dashboard")
 @app.post("/api/live-dashboard")
 def live_dashboard(filters: dict = Body(default={})):
     return mock_store.get_live(filters or {})
 
 
+@app.post("/slot-utilization")
 @app.post("/api/slot-utilization")
 def slot_utilization(filters: dict = Body(default={})):
     return mock_store.get_slot_util(filters or {})
 
 
+@app.post("/attrition")
 @app.post("/api/attrition")
 def attrition(filters: dict = Body(default={})):
     return mock_store.get_attrition(filters or {})
 
 
+@app.post("/export")
 @app.post("/api/export")
 def export_csv(payload: dict = Body(default={})):
     tab = str((payload or {}).get("tab") or "export")[:40]
