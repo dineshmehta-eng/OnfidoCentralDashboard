@@ -61,3 +61,30 @@ The public Vercel frontend uses same-origin API calls:
 ```
 
 So it can be opened from any system without calling `127.0.0.1`.
+
+## ETM / Task Skip: Hourly SQL Sync
+
+The ETL job syncs these Google worksheets into SQL every hour:
+
+- `DOC ETM` -> `stg_doc_etm`
+- `DOC Task Skip` -> `stg_doc_task_skip`
+- `POA ETM` -> `stg_poa_etm`
+
+Required local credential:
+
+```text
+config/service_account.json
+```
+
+Run once manually:
+
+```powershell
+cd C:\Users\Dineshm\.codex\Onfido_SQL_Dashboard
+powershell -ExecutionPolicy Bypass -File .\scripts\run_etl_once.ps1
+```
+
+Register hourly schedule:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\register_etl_hourly_task.ps1
+```
