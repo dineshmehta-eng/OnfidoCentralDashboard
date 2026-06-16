@@ -146,27 +146,45 @@ class MockStore:
         }
 
     def get_dashboard(self, filters: Dict[str, Any]) -> Dict[str, Any]:
+        def fval(*keys):
+            for key in keys:
+                value = filters.get(key)
+                if value is not None and str(value).strip():
+                    return str(value).strip()
+            return ""
+
         date_from = (filters.get("from") or filters.get("date_from") or "").strip()
         date_to = (filters.get("to") or filters.get("date_to") or "").strip()
         month = filters.get("month") or ("" if (date_from or date_to) else MONTHS[-1])
         view_mode = filters.get("viewMode", "daily")
+        analyst_filter = fval("analyst", "AnalystEmail", "analyst_email")
+        tl_filter = fval("tl", "TLName", "tl_name")
+        am_filter = fval("am", "AM")
+        qa_filter = fval("qa", "QAName", "qa_name")
+        category_filter = fval("category", "Category")
+        location_filter = fval("location", "Location")
+        aon_filter = fval("aon_wise", "AONWise", "aon")
+        has_scoped_filter = any([
+            date_from, date_to, analyst_filter, tl_filter, am_filter,
+            qa_filter, category_filter, location_filter, aon_filter
+        ])
 
         # simple filter simulation. Keep an all-month copy for month-wise charts.
         all_filtered = list(self.rows)
-        if filters.get("analyst"):
-            all_filtered = [r for r in all_filtered if r["Analyst_Email"] == filters["analyst"]]
-        if filters.get("tl"):
-            all_filtered = [r for r in all_filtered if r["TL_Name"] == filters["tl"]]
-        if filters.get("am"):
-            all_filtered = [r for r in all_filtered if r["AM"] == filters["am"]]
-        if filters.get("qa"):
-            all_filtered = [r for r in all_filtered if r["QA_Name"] == filters["qa"]]
-        if filters.get("category"):
-            all_filtered = [r for r in all_filtered if r["Category"] == filters["category"]]
-        if filters.get("location"):
-            all_filtered = [r for r in all_filtered if r["Location"] == filters["location"]]
-        if filters.get("aon_wise"):
-            all_filtered = [r for r in all_filtered if r["AON_Wise"] == filters["aon_wise"]]
+        if analyst_filter:
+            all_filtered = [r for r in all_filtered if r["Analyst_Email"] == analyst_filter]
+        if tl_filter:
+            all_filtered = [r for r in all_filtered if r["TL_Name"] == tl_filter]
+        if am_filter:
+            all_filtered = [r for r in all_filtered if r["AM"] == am_filter]
+        if qa_filter:
+            all_filtered = [r for r in all_filtered if r["QA_Name"] == qa_filter]
+        if category_filter:
+            all_filtered = [r for r in all_filtered if r["Category"] == category_filter]
+        if location_filter:
+            all_filtered = [r for r in all_filtered if r["Location"] == location_filter]
+        if aon_filter:
+            all_filtered = [r for r in all_filtered if r["AON_Wise"] == aon_filter]
         if date_from:
             all_filtered = [r for r in all_filtered if str(r["Date"]) >= date_from]
         if date_to:
@@ -206,7 +224,7 @@ class MockStore:
         int_raw = round((ir_err / ir_aud) * 100, 2) if ir_aud else 0
         overall_err = round(((mis + wrn + ext_mis + ext_wrn) / (tfraud + tclear + ext_tfraud + ext_tclear)) * 100, 2) if (tfraud + tclear + ext_tfraud + ext_tclear) else 0
         month_ref = PROCESS_OVERVIEW_REFERENCE.get(month)
-        if month_ref:
+        if month_ref and not has_scoped_filter:
             int_far = month_ref["int_far"] / 100
             int_frr = month_ref["int_frr"] / 100
             ext_far = month_ref["ext_far"] / 100
@@ -233,7 +251,7 @@ class MockStore:
         def safe_div(n, d):
             return round(n / d, 2) if d else 0
 
-        def month_summary(rows):
+        def month_summary(rows, use_reference_totals=False):
             grouped = {}
             sum_keys = [
                 "Total_Task", "Total_AHT", "POA_Task", "POA_AHT", "POA_Audits", "POA_Error",
@@ -298,7 +316,7 @@ class MockStore:
                     "Ext_Manual_FRR_r": ext_manual_frr_r,
                 }
                 ref = PROCESS_OVERVIEW_REFERENCE.get(label)
-                if ref:
+                if ref and use_reference_totals:
                     summary.update({
                         "Task": ref["total_task"],
                         "Total_Task": ref["total_task"],
@@ -433,7 +451,7 @@ class MockStore:
             "overview": {
                 "metrics": {"totalTasks": total_task, "avgAht": avg_aht, "intFar": int_far, "intFrr": int_frr},
                 "kpiExtra": {},
-                "monthlySummary": month_summary(all_filtered),
+                "monthlySummary": month_summary(all_filtered, not has_scoped_filter),
                 "dayTrend": [],
                 "tlRows": tl_rows,
                 "amRows": am_rows,

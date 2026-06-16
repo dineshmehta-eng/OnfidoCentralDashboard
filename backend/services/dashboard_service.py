@@ -129,6 +129,13 @@ def _group_agg(df: pd.DataFrame, group_key: str, sum_keys: List[str]) -> List[Di
 
 
 def get_dashboard_data(filters: Dict[str, Any]) -> Dict[str, Any]:
+    def fval(*keys):
+        for key in keys:
+            value = filters.get(key)
+            if value is not None and str(value).strip():
+                return str(value).strip()
+        return ""
+
     date_from = (filters.get("from") or filters.get("date_from") or "").strip()
     date_to = (filters.get("to") or filters.get("date_to") or "").strip()
     has_date_range = bool(date_from or date_to)
@@ -168,22 +175,22 @@ def get_dashboard_data(filters: Dict[str, Any]) -> Dict[str, Any]:
         params["date_to"] = date_to
         all_params["date_to"] = date_to
 
-    for api_key, logical_col in [
-        ("analyst", "analyst_email"),
-        ("tl", "tl_name"),
-        ("am", "am"),
-        ("qa", "qa_name"),
-        ("category", "category"),
-        ("location", "location"),
-        ("aon_wise", "aon_wise"),
+    for api_key, logical_col, aliases in [
+        ("analyst", "analyst_email", ["analyst", "AnalystEmail", "analyst_email"]),
+        ("tl", "tl_name", ["tl", "TLName", "tl_name"]),
+        ("am", "am", ["am", "AM"]),
+        ("qa", "qa_name", ["qa", "QAName", "qa_name"]),
+        ("category", "category", ["category", "Category"]),
+        ("location", "location", ["location", "Location"]),
+        ("aon_wise", "aon_wise", ["aon_wise", "AONWise", "aon"]),
     ]:
-        val = filters.get(api_key)
+        val = fval(*aliases)
         if val and str(val).strip():
             db_col = _qident(resolve_table_col(table_name, logical_col))
             where_clauses.append(f"{db_col} = :{api_key}")
             base_where.append(f"{db_col} = :{api_key}")
-            params[api_key] = str(val).strip()
-            all_params[api_key] = str(val).strip()
+            params[api_key] = val
+            all_params[api_key] = val
 
     select_cols = [
         ("analyst_email", "analyst_email"),
