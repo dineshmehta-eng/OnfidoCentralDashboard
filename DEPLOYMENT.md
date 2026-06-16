@@ -35,20 +35,20 @@ powershell -ExecutionPolicy Bypass -File .\scripts\unregister_backend_autostart.
 This repo contains a Vercel static build. In Vercel, import the GitHub repo and set:
 
 - Framework Preset: `Other`
-- Build Command: `npm run build`
-- Output Directory: `dist`
-- Environment Variable: `DASHBOARD_API_BASE`
+- Build Command: `echo Static frontend ready`
+- Output Directory: `frontend`
+- Install Command: `echo No install needed`
 
-For a frontend that runs on the same PC as the backend, use:
-
-```text
-DASHBOARD_API_BASE=http://127.0.0.1:8000
-```
-
-If the backend is hosted on a public server, use that public backend URL instead.
-
-When using a Vercel URL with the local backend, allow the frontend origin in `.env` or use:
+When using a Vercel URL with the local backend, allow the frontend origin in `.env`. The simplest local setting is:
 
 ```text
 API_CORS_ORIGINS=*
 ```
+
+The frontend defaults to:
+
+```text
+http://127.0.0.1:8000
+```
+
+when it is opened from Vercel.
