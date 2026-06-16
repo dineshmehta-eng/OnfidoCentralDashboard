@@ -69,6 +69,24 @@ app.add_middleware(
 )
 app.add_middleware(APIKeyMiddleware)
 
+@app.middleware("http")
+async def private_network_cors(request, call_next):
+    if (
+        request.method == "OPTIONS"
+        and request.headers.get("access-control-request-private-network", "").lower() == "true"
+    ):
+        origin = request.headers.get("origin") or "*"
+        requested_headers = request.headers.get("access-control-request-headers") or "*"
+        response = Response(status_code=200)
+        response.headers["Access-Control-Allow-Origin"] = "*" if allow_all_origins else origin
+        response.headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,PATCH,DELETE,OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = requested_headers
+        response.headers["Access-Control-Allow-Private-Network"] = "true"
+        return response
+    response = await call_next(request)
+    response.headers["Access-Control-Allow-Private-Network"] = "true"
+    return response
+
 @app.get("/api/health")
 def health():
     if use_mock:

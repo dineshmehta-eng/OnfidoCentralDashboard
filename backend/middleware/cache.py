@@ -9,6 +9,7 @@ class CacheControlMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
         path = request.url.path
+        response.headers["Access-Control-Allow-Private-Network"] = "true"
 
         # Keep the local FastAPI bridge fresh; stale bridge code can break page startup.
         if path == "/fastapi_bridge.js":
