@@ -1,0 +1,65 @@
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+config/service_account.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+logs/*.log
+logs/*.txt
+*.log
+server*.out
+server*.err
+chrome*.txt
+chrome*.err
+dashboard_verify_dom.html
+test_dom.txt
+test_err.txt
+source_ui_smoke.err
+poa_dom_check.*
+
+# Generated / local verification artifacts
+dist/
+delivery/
+tmp*/
+restore_backup_*/
+pdf_pages/
+Complete_Dashboard_*.pdf
+original_dashboard.html.html
+
+# OS
+.DS_Store
+Thumbs.db

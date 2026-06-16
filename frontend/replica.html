@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Onfido Dashboard PDF Replica</title>
+<style>
+*{box-sizing:border-box}
+:root{
+  --bg:#070b14;
+  --panel:#0d1424;
+  --panel2:#111a2d;
+  --line:#20304a;
+  --text:#e8f0ff;
+  --muted:#94a6c6;
+  --blue:#60a5fa;
+  --cyan:#67e8f9;
+}
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--text);
+  font-family:Segoe UI,Arial,sans-serif;
+}
+.top{
+  position:sticky;
+  top:0;
+  z-index:20;
+  background:rgba(7,11,20,.96);
+  border-bottom:1px solid var(--line);
+  backdrop-filter:blur(10px);
+}
+.bar{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  padding:10px 14px;
+}
+.brand{
+  font-weight:900;
+  letter-spacing:.3px;
+  white-space:nowrap;
+}
+.brand span{color:var(--cyan)}
+.status{
+  color:var(--muted);
+  font-size:12px;
+  margin-left:auto;
+}
+.controls{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  padding:0 14px 10px;
+  overflow-x:auto;
+}
+button,a.btn{
+  border:1px solid var(--line);
+  background:#111a2d;
+  color:var(--text);
+  border-radius:6px;
+  padding:6px 10px;
+  font-size:12px;
+  font-weight:800;
+  cursor:pointer;
+  text-decoration:none;
+  white-space:nowrap;
+}
+button:hover,a.btn:hover{border-color:var(--blue)}
+button.active{
+  background:#12355f;
+  border-color:#2c6ec0;
+  color:#fff;
+}
+.tabs{
+  display:flex;
+  gap:6px;
+  padding:0 14px 12px;
+  overflow-x:auto;
+}
+.tab{
+  border:1px solid var(--line);
+  background:#0d1424;
+  color:var(--muted);
+  border-radius:6px;
+  padding:7px 10px;
+  font-size:11px;
+  font-weight:900;
+  text-transform:uppercase;
+  white-space:nowrap;
+}
+.tab.active{
+  color:#fff;
+  background:#14253f;
+  border-color:#315783;
+}
+main{
+  max-width:1420px;
+  margin:0 auto;
+  padding:14px;
+}
+.section-head{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  margin:4px 0 12px;
+}
+.section-head h1{
+  margin:0;
+  font-size:18px;
+  letter-spacing:.4px;
+}
+.chip{
+  border:1px solid var(--line);
+  border-radius:999px;
+  padding:4px 10px;
+  color:var(--cyan);
+  background:#081927;
+  font-size:12px;
+  font-weight:800;
+}
+.pages{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:16px;
+}
+.page-card{
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:8px;
+  overflow:hidden;
+}
+.page-title{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:8px 10px;
+  background:var(--panel2);
+  border-bottom:1px solid var(--line);
+  color:var(--muted);
+  font-size:12px;
+  font-weight:800;
+}
+.page-title b{color:var(--text)}
+.image-wrap{
+  overflow:auto;
+  background:#02050b;
+}
+.image-wrap img{
+  display:block;
+  width:calc(100% * var(--zoom,1));
+  max-width:none;
+  height:auto;
+}
+.empty{
+  color:var(--muted);
+  padding:32px;
+  text-align:center;
+}
+@media(max-width:760px){
+  .bar{align-items:flex-start;flex-direction:column}
+  .status{margin-left:0}
+  main{padding:10px}
+}
+</style>
+</head>
+<body>
+<div class="top">
+  <div class="bar">
+    <div class="brand"><span>Onfido</span> Dashboard Replica</div>
+    <div class="status" id="status">PDF source: Complete_Dashboard_2026-06-14.pdf</div>
+  </div>
+  <div class="tabs" id="tabs"></div>
+  <div class="controls">
+    <button id="prevBtn" type="button">Prev Section</button>
+    <button id="nextBtn" type="button">Next Section</button>
+    <button id="fitBtn" type="button" class="active">Fit Width</button>
+    <button id="zoomInBtn" type="button">Zoom In</button>
+    <button id="zoomOutBtn" type="button">Zoom Out</button>
+    <a class="btn" href="/">Interactive Dashboard</a>
+  </div>
+</div>
+<main>
+  <div class="section-head">
+    <h1 id="title"></h1>
+    <span class="chip" id="range"></span>
+  </div>
+  <div class="pages" id="pages"></div>
+</main>
+<script>
+(function(){
+  "use strict";
+  var sections = [
+    {id:"process", name:"Process Overview", from:1, to:8},
+    {id:"overview", name:"Overview", from:9, to:12},
+    {id:"quality", name:"Quality", from:13, to:17},
+    {id:"poa", name:"POA", from:18, to:22},
+    {id:"etm", name:"ETM", from:23, to:41},
+    {id:"skip", name:"Task Skip", from:42, to:50},
+    {id:"live", name:"Live Dashboard", from:51, to:71},
+    {id:"slot", name:"Slot Performance & Utilization", from:72, to:79},
+    {id:"attrition", name:"Attrition", from:80, to:98},
+    {id:"trends", name:"Trends", from:99, to:105},
+    {id:"alerts", name:"Alerts", from:106, to:112},
+    {id:"analyst", name:"Analyst Performance", from:113, to:116}
+  ];
+  var current = 0;
+  var zoom = 1;
+  var tabs = document.getElementById("tabs");
+  var pages = document.getElementById("pages");
+  var title = document.getElementById("title");
+  var range = document.getElementById("range");
+  var status = document.getElementById("status");
+  function pad(n){return String(n).padStart(3,"0");}
+  function setZoom(value){
+    zoom = Math.max(.65, Math.min(2.2, value));
+    document.documentElement.style.setProperty("--zoom", zoom);
+    document.getElementById("fitBtn").classList.toggle("active", zoom === 1);
+  }
+  function renderTabs(){
+    tabs.innerHTML = sections.map(function(s,i){
+      return '<button class="tab '+(i===current?'active':'')+'" data-i="'+i+'" type="button">'+s.name+'</button>';
+    }).join("");
+  }
+  function render(){
+    var s = sections[current];
+    renderTabs();
+    title.textContent = s.name;
+    range.textContent = "PDF pages " + s.from + "-" + s.to;
+    status.textContent = s.name + " loaded from exact PDF figures";
+    var html = [];
+    for(var p=s.from;p<=s.to;p++){
+      html.push(
+        '<article class="page-card">'+
+          '<div class="page-title"><b>'+s.name+'</b><span>PDF Page '+p+'</span></div>'+
+          '<div class="image-wrap"><img loading="lazy" src="assets/pdf_pages/page_'+pad(p)+'.png" alt="'+s.name+' PDF Page '+p+'"></div>'+
+        '</article>'
+      );
+    }
+    pages.innerHTML = html.join("") || '<div class="empty">No pages found.</div>';
+    window.scrollTo({top:0, behavior:"smooth"});
+  }
+  tabs.addEventListener("click",function(e){
+    var b = e.target.closest("button[data-i]");
+    if(!b) return;
+    current = Number(b.getAttribute("data-i")) || 0;
+    render();
+  });
+  document.getElementById("prevBtn").addEventListener("click",function(){
+    current = (current + sections.length - 1) % sections.length;
+    render();
+  });
+  document.getElementById("nextBtn").addEventListener("click",function(){
+    current = (current + 1) % sections.length;
+    render();
+  });
+  document.getElementById("fitBtn").addEventListener("click",function(){setZoom(1);});
+  document.getElementById("zoomInBtn").addEventListener("click",function(){setZoom(zoom + .15);});
+  document.getElementById("zoomOutBtn").addEventListener("click",function(){setZoom(zoom - .15);});
+  render();
+})();
+</script>
+</body>
+</html>

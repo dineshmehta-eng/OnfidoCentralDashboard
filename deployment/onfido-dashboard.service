@@ -1,0 +1,41 @@
+# Onfido SQL Dashboard — Systemd Service (Linux)
+#
+# Installation:
+#   1. Copy this file to /etc/systemd/system/onfido-dashboard.service
+#   2. sudo systemctl daemon-reload
+#   3. sudo systemctl enable --now onfido-dashboard
+#   4. sudo systemctl status onfido-dashboard
+#
+# Logs:
+#   sudo journalctl -u onfido-dashboard -f
+#
+# Notes:
+#   - Adjust WorkingDirectory and EnvironmentFile to your actual install path.
+#   - Create a dedicated user (e.g., onfido) for security.
+#   - Ensure the user has read access to .env and the frontend folder.
+#   - Start with 4 workers; scale after load testing.
+
+[Unit]
+Description=Onfido SQL Dashboard API
+After=network.target
+
+[Service]
+Type=simple
+User=onfido
+Group=onfido
+WorkingDirectory=/opt/onfido_sql_dashboard
+EnvironmentFile=/opt/onfido_sql_dashboard/.env
+ExecStart=/opt/onfido_sql_dashboard/venv/bin/uvicorn backend.main:app --host 0.0.0.0 --port 8000 --workers 4
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Security hardening (optional but recommended)
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/onfido_sql_dashboard/logs
+
+[Install]
+WantedBy=multi-user.target
