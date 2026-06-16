@@ -8,7 +8,11 @@
       defaultApiBase = "http://127.0.0.1:8000";
     }
   } catch(e) {}
-  var API_BASE = String(window.DASHBOARD_API_BASE || defaultApiBase).replace(/\/+$/, "");
+  var hasConfiguredApiBase = false;
+  try {
+    hasConfiguredApiBase = Object.prototype.hasOwnProperty.call(window, "DASHBOARD_API_BASE");
+  } catch(e) {}
+  var API_BASE = String(hasConfiguredApiBase ? window.DASHBOARD_API_BASE : defaultApiBase).replace(/\/+$/, "");
   function apiUrl(url){
     return API_BASE && String(url || "").charAt(0) === "/" ? API_BASE + url : url;
   }

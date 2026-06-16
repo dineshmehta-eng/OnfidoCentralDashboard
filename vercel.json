@@ -1,5 +1,4 @@
 {
-  "buildCommand": "echo Static frontend ready",
-  "outputDirectory": "frontend",
-  "installCommand": "echo No install needed"
+  "buildCommand": "npm run build",
+  "outputDirectory": "public"
 }

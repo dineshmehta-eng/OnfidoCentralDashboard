@@ -53,6 +53,7 @@ poa_dom_check.*
 
 # Generated / local verification artifacts
 dist/
+public/
 delivery/
 tmp*/
 restore_backup_*/

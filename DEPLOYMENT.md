@@ -44,27 +44,20 @@ To remove it:
 powershell -ExecutionPolicy Bypass -File .\scripts\unregister_backend_autostart.ps1
 ```
 
-## Frontend: Vercel
+## Frontend + Public API: Vercel
 
-This repo contains a Vercel static build. In Vercel, import the GitHub repo and set:
+This repo contains a Vercel static frontend and a Vercel FastAPI entrypoint in `main.py`.
+In Vercel, import the GitHub repo and set:
 
 - Framework Preset: `Other`
-- Build Command: `echo Static frontend ready`
-- Output Directory: `frontend`
-- Install Command: `echo No install needed`
+- Build Command: `npm run build`
+- Output Directory: `public`
 
-When using a Vercel URL with the local backend, allow the frontend origin in `.env`. The simplest local setting is:
-
-```text
-API_CORS_ORIGINS=*
-```
-
-The frontend defaults to:
+The public Vercel frontend uses same-origin API calls:
 
 ```text
-http://127.0.0.1:8000
+/api/init
+/api/dashboard
 ```
 
-when it is opened from Vercel.
-
-Because `127.0.0.1` always means the current computer, the Vercel frontend only works on another computer if that computer also has the backend running locally, or if `DASHBOARD_API_BASE` is configured to a public backend URL.
+So it can be opened from any system without calling `127.0.0.1`.
