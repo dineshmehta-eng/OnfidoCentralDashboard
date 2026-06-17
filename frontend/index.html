@@ -6,6 +6,30 @@
 <title>Central Dashboard</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+<script>
+(function(){
+  if(!window.Chart || window.Chart.__safeCanvasPatch)return;
+  var OriginalChart=window.Chart;
+  function canvasFrom(item){
+    if(!item)return item;
+    if(item.canvas)return item.canvas;
+    if(typeof item==='string')return document.querySelector(item);
+    return item;
+  }
+  function SafeChart(item,config){
+    try{
+      var canvas=canvasFrom(item);
+      var existing=canvas&&OriginalChart.getChart?OriginalChart.getChart(canvas):null;
+      if(existing)existing.destroy();
+    }catch(e){}
+    return new OriginalChart(item,config);
+  }
+  try{Object.setPrototypeOf(SafeChart,OriginalChart);}catch(e){}
+  SafeChart.prototype=OriginalChart.prototype;
+  SafeChart.__safeCanvasPatch=true;
+  window.Chart=SafeChart;
+})();
+</script>
 <style>
 /* UI revamped for interactive intelligent dashboard. Calculation JS and conditional formatting functions are preserved. */
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -5183,7 +5207,24 @@ document.addEventListener('DOMContentLoaded',function(){setTimeout(function(){lo
     }
     if(typeof Chart==='undefined')return; var el=document.getElementById('c-pt'); if(!el)return; if(typeof dC==='function')dC('c-pt');
     var hasDL=typeof ChartDataLabels!=='undefined'; window._ch=window._ch||{};
-    _ch['c-pt']=new Chart(el,{type:'bar',plugins:hasDL?[ChartDataLabels]:[],data:{labels:labels,datasets:[{type:'bar',label:'Total Task',data:tasks,backgroundColor:'#93c5fd99',borderColor:'#93c5fd',borderWidth:1,borderRadius:6,yAxisID:'y'},{type:'line',label:'Avg AHT',data:aht,borderColor:'#67e8f9',backgroundColor:'#67e8f922',borderWidth:3,pointRadius:5,tension:.3,yAxisID:'y1',datalabels:hasDL?{display:true,formatter:function(v){return fmtAht(v);}}:{display:false}}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,position:'bottom'}},scales:{x:{grid:{display:false},ticks:{autoSkip:false}},y:{beginAtZero:true},y1:{position:'right',beginAtZero:true,grid:{drawOnChartArea:false},ticks:{callback:function(v){return v+'s';}}}}});
+    _ch['c-pt']=new Chart(el,{
+      type:'bar',
+      plugins:hasDL?[ChartDataLabels]:[],
+      data:{labels:labels,datasets:[
+        {type:'bar',label:'Total Task',data:tasks,backgroundColor:'#93c5fd99',borderColor:'#93c5fd',borderWidth:1,borderRadius:6,yAxisID:'y'},
+        {type:'line',label:'Avg AHT',data:aht,borderColor:'#67e8f9',backgroundColor:'#67e8f922',borderWidth:3,pointRadius:5,tension:.3,yAxisID:'y1',datalabels:hasDL?{display:true,formatter:function(v){return fmtAht(v);}}:{display:false}}
+      ]},
+      options:{
+        responsive:true,
+        maintainAspectRatio:false,
+        plugins:{legend:{display:true,position:'bottom'}},
+        scales:{
+          x:{grid:{display:false},ticks:{autoSkip:false}},
+          y:{beginAtZero:true},
+          y1:{position:'right',beginAtZero:true,grid:{drawOnChartArea:false},ticks:{callback:function(v){return v+'s';}}}
+        }
+      }
+    });
   }
   function renderAttendanceChart(att){
     if(typeof Chart==='undefined')return; var el=document.getElementById('c-paht'); if(!el)return; if(typeof dC==='function')dC('c-paht');
@@ -5194,7 +5235,7 @@ document.addEventListener('DOMContentLoaded',function(){setTimeout(function(){lo
       {label:'HD',data:att.map(function(r){return num(r.HD);}),backgroundColor:'#93c5fd99',borderColor:'#93c5fd',borderWidth:1,borderRadius:5},
       {label:'Leave',data:att.map(function(r){return num(r.Leave);}),backgroundColor:'#fde68a99',borderColor:'#fde68a',borderWidth:1,borderRadius:5},
       {label:'UL',data:att.map(function(r){return num(r.UL);}),backgroundColor:'#fca5a599',borderColor:'#fca5a5',borderWidth:1,borderRadius:5}
-    ]},options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:34,right:18}},plugins:{legend:{display:true,position:'bottom'},datalabels:hasDL?{display:true,anchor:'end',align:'end',font:{size:11,weight:'900'},color:'#eaf2ff',backgroundColor:'rgba(2,6,23,.7)',borderRadius:3,padding:3,formatter:function(v){return num(v)?fmtN(v):'';}}:{display:false}},scales:{x:{grid:{display:false},ticks:{autoSkip:false,maxRotation:0}},y:{beginAtZero:true,ticks:{precision:0,callback:function(v){return fmtN(v);}}}}});
+    ]},options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:34,right:18}},plugins:{legend:{display:true,position:'bottom'},datalabels:hasDL?{display:true,anchor:'end',align:'end',font:{size:11,weight:'900'},color:'#eaf2ff',backgroundColor:'rgba(2,6,23,.7)',borderRadius:3,padding:3,formatter:function(v){return num(v)?fmtN(v):'';}}:{display:false}},scales:{x:{grid:{display:false},ticks:{autoSkip:false,maxRotation:0}},y:{beginAtZero:true,ticks:{precision:0,callback:function(v){return fmtN(v);}}}}}});
   }
   function renderCalendar(d){
     var aprof=document.getElementById('aprof'); if(!aprof)return;
@@ -5380,7 +5421,7 @@ document.addEventListener('DOMContentLoaded',function(){setTimeout(function(){lo
     _ch['c-pt']=new Chart(el,{type:'bar',plugins:hasDL?[ChartDataLabels]:[],data:{labels:labels,datasets:[
       {type:'bar',label:'Total Task',data:tasks,backgroundColor:'#93c5fd99',borderColor:'#93c5fd',borderWidth:1,borderRadius:7,yAxisID:'y',datalabels:hasDL?{display:true,anchor:'center',align:'center',color:'#07111f',backgroundColor:'rgba(255,255,255,.86)',borderRadius:4,padding:3,font:{size:11,weight:'900'},formatter:function(v){return v?fmtN(v):'';}}:{display:false}},
       {type:'line',label:'Avg AHT',data:aht,borderColor:'#67e8f9',backgroundColor:'#67e8f922',borderWidth:3,pointRadius:5,tension:.3,yAxisID:'y1',datalabels:hasDL?{display:true,anchor:'end',align:'top',offset:8,color:'#eaf2ff',backgroundColor:'rgba(2,6,23,.72)',borderColor:'#67e8f9',borderWidth:1,borderRadius:4,padding:3,font:{size:10,weight:'800'},formatter:function(v){return v?fmtAHT(v):'';}}:{display:false}}
-    ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},layout:{padding:{top:38,right:32,bottom:18,left:12}},plugins:{legend:{display:true,position:'bottom'},tooltip:{callbacks:{label:function(ctx){return ctx.dataset.label+': '+(ctx.dataset.label==='Avg AHT'?fmtAHT(ctx.parsed.y):fmtN(ctx.parsed.y));}}},datalabels:{display:hasDL}},scales:{x:{grid:{display:false},ticks:{autoSkip:false,maxRotation:0}},y:{beginAtZero:true,grace:'20%',ticks:{callback:function(v){return fmtN(v);}}},y1:{position:'right',beginAtZero:true,grace:'24%',grid:{drawOnChartArea:false},ticks:{callback:function(v){return v+'s';}}}}});
+    ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},layout:{padding:{top:38,right:32,bottom:18,left:12}},plugins:{legend:{display:true,position:'bottom'},tooltip:{callbacks:{label:function(ctx){return ctx.dataset.label+': '+(ctx.dataset.label==='Avg AHT'?fmtAHT(ctx.parsed.y):fmtN(ctx.parsed.y));}}},datalabels:{display:hasDL}},scales:{x:{grid:{display:false},ticks:{autoSkip:false,maxRotation:0}},y:{beginAtZero:true,grace:'20%',ticks:{callback:function(v){return fmtN(v);}}},y1:{position:'right',beginAtZero:true,grace:'24%',grid:{drawOnChartArea:false},ticks:{callback:function(v){return v+'s';}}}}}});
   }
 
   function statusListFromData(d){
@@ -5396,7 +5437,7 @@ document.addEventListener('DOMContentLoaded',function(){setTimeout(function(){lo
     var att=((d&&d.attendanceMonthly)||[]).slice().sort(function(a,b){return monthOrder(a.month)-monthOrder(b.month);});
     var statuses=statusListFromData(d); if(!statuses.length) statuses=['P','A','WO','CL','EL','UL'];
     destroyChart('c-paht'); window._ch=window._ch||{}; var hasDL=typeof ChartDataLabels!=='undefined';
-    _ch['c-paht']=new Chart(el,{type:'bar',plugins:hasDL?[ChartDataLabels]:[],data:{labels:att.map(function(r){return monthLabel(r.month);}),datasets:statuses.map(function(st){var c=statusColor(st);return {label:st,data:att.map(function(r){return num(st==='P'?(r.P||r.p):r[st]);}),backgroundColor:c+'99',borderColor:c,borderWidth:1,borderRadius:5};})},options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:34,right:18}},plugins:{legend:{display:true,position:'bottom'},tooltip:{callbacks:{label:function(ctx){return ctx.dataset.label+': '+fmtN(ctx.parsed.y);}}},datalabels:hasDL?{display:true,anchor:'end',align:'end',font:{size:11,weight:'900'},color:'#eaf2ff',backgroundColor:'rgba(2,6,23,.7)',borderRadius:3,padding:3,formatter:function(v){return num(v)?fmtN(v):'';}}:{display:false}},scales:{x:{grid:{display:false},ticks:{autoSkip:false,maxRotation:0}},y:{beginAtZero:true,ticks:{precision:0,callback:function(v){return fmtN(v);}}}}});
+    _ch['c-paht']=new Chart(el,{type:'bar',plugins:hasDL?[ChartDataLabels]:[],data:{labels:att.map(function(r){return monthLabel(r.month);}),datasets:statuses.map(function(st){var c=statusColor(st);return {label:st,data:att.map(function(r){return num(st==='P'?(r.P||r.p):r[st]);}),backgroundColor:c+'99',borderColor:c,borderWidth:1,borderRadius:5};})},options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:34,right:18}},plugins:{legend:{display:true,position:'bottom'},tooltip:{callbacks:{label:function(ctx){return ctx.dataset.label+': '+fmtN(ctx.parsed.y);}}},datalabels:hasDL?{display:true,anchor:'end',align:'end',font:{size:11,weight:'900'},color:'#eaf2ff',backgroundColor:'rgba(2,6,23,.7)',borderRadius:3,padding:3,formatter:function(v){return num(v)?fmtN(v):'';}}:{display:false}},scales:{x:{grid:{display:false},ticks:{autoSkip:false,maxRotation:0}},y:{beginAtZero:true,ticks:{precision:0,callback:function(v){return fmtN(v);}}}}}});
   }
   function renderCalendarFinal(d){
     var aprof=document.getElementById('aprof'); if(!aprof)return;
@@ -5491,14 +5532,14 @@ document.addEventListener('DOMContentLoaded',function(){setTimeout(function(){lo
     rows=rows.slice().sort(function(a,b){return monthOrder(a.month)-monthOrder(b.month);}); var labels=rows.map(function(r){return monthLabel(r.month);});
     var task=rows.map(function(r){return N(pick(r,['TOTAL TASK','Total_Tasks','Total Task','Total_Task']));});
     var aht=rows.map(function(r){return N(pick(r,['AVG AHT','Avg_AHT','Avg AHT']));}); var hasDL=typeof ChartDataLabels!=='undefined';
-    _ch['c-pt']=new Chart(el,{type:'bar',plugins:hasDL?[ChartDataLabels]:[],data:{labels:labels,datasets:[{type:'bar',label:'Total Task',data:task,backgroundColor:'#93c5fd99',borderColor:'#93c5fd',borderWidth:1,borderRadius:7,yAxisID:'y',datalabels:hasDL?{display:true,anchor:'center',align:'center',color:'#07111f',backgroundColor:'rgba(255,255,255,.86)',borderRadius:4,font:{size:11,weight:'900'},formatter:function(v){return v?M(v):'';}}:{display:false}},{type:'line',label:'Avg AHT',data:aht,borderColor:'#67e8f9',backgroundColor:'#67e8f922',borderWidth:3,pointRadius:5,tension:.28,yAxisID:'y1',datalabels:hasDL?{display:true,anchor:'end',align:'top',offset:8,color:'#eaf2ff',backgroundColor:'rgba(2,6,23,.72)',borderRadius:4,font:{size:10,weight:'800'},formatter:function(v){return v?fmtAHT(v):'';}}:{display:false}}]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},layout:{padding:{top:38,right:32,bottom:18,left:12}},plugins:{legend:{display:true,position:'bottom'},tooltip:{callbacks:{label:function(ctx){return ctx.dataset.label+': '+(ctx.dataset.label==='Avg AHT'?fmtAHT(ctx.parsed.y):M(ctx.parsed.y));}}},datalabels:{display:hasDL}},scales:{x:{grid:{display:false},ticks:{autoSkip:false,maxRotation:0}},y:{beginAtZero:true,grace:'20%',ticks:{callback:function(v){return M(v);}}},y1:{position:'right',beginAtZero:true,grace:'24%',grid:{drawOnChartArea:false},ticks:{callback:function(v){return v+'s';}}}}});
+    _ch['c-pt']=new Chart(el,{type:'bar',plugins:hasDL?[ChartDataLabels]:[],data:{labels:labels,datasets:[{type:'bar',label:'Total Task',data:task,backgroundColor:'#93c5fd99',borderColor:'#93c5fd',borderWidth:1,borderRadius:7,yAxisID:'y',datalabels:hasDL?{display:true,anchor:'center',align:'center',color:'#07111f',backgroundColor:'rgba(255,255,255,.86)',borderRadius:4,font:{size:11,weight:'900'},formatter:function(v){return v?M(v):'';}}:{display:false}},{type:'line',label:'Avg AHT',data:aht,borderColor:'#67e8f9',backgroundColor:'#67e8f922',borderWidth:3,pointRadius:5,tension:.28,yAxisID:'y1',datalabels:hasDL?{display:true,anchor:'end',align:'top',offset:8,color:'#eaf2ff',backgroundColor:'rgba(2,6,23,.72)',borderRadius:4,font:{size:10,weight:'800'},formatter:function(v){return v?fmtAHT(v):'';}}:{display:false}}]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},layout:{padding:{top:38,right:32,bottom:18,left:12}},plugins:{legend:{display:true,position:'bottom'},tooltip:{callbacks:{label:function(ctx){return ctx.dataset.label+': '+(ctx.dataset.label==='Avg AHT'?fmtAHT(ctx.parsed.y):M(ctx.parsed.y));}}},datalabels:{display:hasDL}},scales:{x:{grid:{display:false},ticks:{autoSkip:false,maxRotation:0}},y:{beginAtZero:true,grace:'20%',ticks:{callback:function(v){return M(v);}}},y1:{position:'right',beginAtZero:true,grace:'24%',grid:{drawOnChartArea:false},ticks:{callback:function(v){return v+'s';}}}}}});
   }
   function attendanceChart(d){
     var el=document.getElementById('c-paht'); if(!el||typeof Chart==='undefined')return; destroy('c-paht'); window._ch=window._ch||{};
     var rows=(d.attendanceMonthly||[]).slice().sort(function(a,b){return monthOrder(a.month)-monthOrder(b.month);});
     var sts=['P','A','WO','LWP','CL','EL','UL','HD','Leave'].filter(function(st){return rows.some(function(r){return N(st==='P'?(r.P||r.p):r[st])>0;});}); if(!sts.length)sts=['P','A','WO','CL','EL','UL'];
     var hasDL=typeof ChartDataLabels!=='undefined';
-    _ch['c-paht']=new Chart(el,{type:'bar',plugins:hasDL?[ChartDataLabels]:[],data:{labels:rows.map(function(r){return monthLabel(r.month);}),datasets:sts.map(function(st){var c=color(st);return {label:st,data:rows.map(function(r){return N(st==='P'?(r.P||r.p):r[st]);}),backgroundColor:c+'99',borderColor:c,borderWidth:1,borderRadius:5};})},options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:34,right:18}},plugins:{legend:{display:true,position:'bottom'},datalabels:hasDL?{display:true,anchor:'end',align:'end',font:{size:11,weight:'900'},color:'#eaf2ff',backgroundColor:'rgba(2,6,23,.7)',borderRadius:3,padding:3,formatter:function(v){return N(v)?M(v):'';}}:{display:false}},scales:{x:{grid:{display:false},ticks:{autoSkip:false,maxRotation:0}},y:{beginAtZero:true,ticks:{precision:0,callback:function(v){return M(v);}}}}});
+    _ch['c-paht']=new Chart(el,{type:'bar',plugins:hasDL?[ChartDataLabels]:[],data:{labels:rows.map(function(r){return monthLabel(r.month);}),datasets:sts.map(function(st){var c=color(st);return {label:st,data:rows.map(function(r){return N(st==='P'?(r.P||r.p):r[st]);}),backgroundColor:c+'99',borderColor:c,borderWidth:1,borderRadius:5};})},options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:34,right:18}},plugins:{legend:{display:true,position:'bottom'},datalabels:hasDL?{display:true,anchor:'end',align:'end',font:{size:11,weight:'900'},color:'#eaf2ff',backgroundColor:'rgba(2,6,23,.7)',borderRadius:3,padding:3,formatter:function(v){return N(v)?M(v):'';}}:{display:false}},scales:{x:{grid:{display:false},ticks:{autoSkip:false,maxRotation:0}},y:{beginAtZero:true,ticks:{precision:0,callback:function(v){return M(v);}}}}}});
   }
   function calendar(d){
     var aprof=document.getElementById('aprof'); if(!aprof)return; var card=document.getElementById('search-cal-card'); if(!card){card=document.createElement('div');card.id='search-cal-card';card.className='card g1';card.style.setProperty('--hc','var(--orange)');card.innerHTML='<h3>Current month Attendance</h3><div id="search-att-cal" class="search-calendar"></div>';aprof.appendChild(card);} var cal=document.getElementById('search-att-cal'); if(!cal)return;

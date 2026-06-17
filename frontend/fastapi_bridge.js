@@ -616,9 +616,10 @@
       externalQuality:{labels:labels, series:[{label:"Ext FAR", data:rows.map(function(r){return pctNum(r.Ext_FAR_r);}), color:"#fdba74"},{label:"Ext FRR", data:rows.map(function(r){return pctNum(r.Ext_FRR_r);}), color:"#f9a8d4"}]}
     };
   }
-  async function initPayload(){
+  async function initPayload(forceRefresh){
+    if(forceRefresh) apiCache = {};
     if(apiCache.initPayload) return apiCache.initPayload;
-    var init = await json("/api/init");
+    var init = await json("/api/init" + (forceRefresh ? "?forceRefresh=1" : ""));
     var filters = init.filters || {};
     filters.AM = filters.AM || filters.ams || filters.am || [];
     filters.TLName = filters.TLName || filters.tls || filters.tl || [];
@@ -702,15 +703,15 @@
     if(!q) return {success:false, error:"No analyst selected."};
     return json("/api/analyst-search?email=" + encodeURIComponent(q));
   }
-  async function warm(){
-    var init = await initPayload();
-    var dash = await dashboard([{month:init.currentMonth}]);
-    var e = await etm([{month:init.currentMonth}]);
-    return {success:true, init:init, dashboard:dash, etmData:e, fastStaged:true};
+  async function warm(forceRefresh){
+    if(forceRefresh) apiCache = {};
+    var init = await initPayload(forceRefresh);
+    var dash = await dashboard([{month:init.currentMonth, forceRefresh:!!forceRefresh}]);
+    return {success:true, init:init, dashboard:dash, fastStaged:true};
   }
   var handlers = {
-    appGetWarmDashboardData: function(){ return warm(); },
-    setupPermanentDashboardCache: function(){ return warm(); },
+    appGetWarmDashboardData: function(args){ return warm(args && args[0]); },
+    setupPermanentDashboardCache: function(args){ return warm(args && args[0]); },
     appGetDashboard: function(args){ return dashboard(args); },
     appGetETMData: function(args){ return etm(args); },
     appGetSlotUtilData: function(args){ return slot(args); },
@@ -728,13 +729,10 @@
       var f = filtersFromArgs(args);
       if(!f.month && !f.from && !f.to) f.month = init.currentMonth || "";
       var d = await dashboard([f]);
-      var e = await etm([f]);
-      var s = await slot([f]);
-      var a = await attrition([f]);
-      return processOverviewCompat(d, e, s, a);
+      return processOverviewCompat(d, {}, {}, {});
     },
     appInvalidateCache: function(){ apiCache = {}; return Promise.resolve({success:true}); },
-    hardResetAndRefreshDashboard: function(){ apiCache = {}; return warm(); },
+    hardResetAndRefreshDashboard: function(){ apiCache = {}; return warm(true); },
     appGetAnalystSearch: function(args){ return analystSearch(args); }
   };
 

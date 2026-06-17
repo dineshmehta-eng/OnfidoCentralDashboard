@@ -129,6 +129,14 @@ def _filter_metadata():
     return by_email, by_name
 
 
+def clear_filter_metadata() -> None:
+    _filter_metadata.cache_clear()
+
+
+def warm_filter_metadata() -> None:
+    _filter_metadata()
+
+
 def enrich_rows_with_filter_metadata(rows: List[Dict[str, Any]] | None) -> List[Dict[str, Any]]:
     if not rows:
         return []

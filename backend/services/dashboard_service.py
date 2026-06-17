@@ -2,9 +2,12 @@ from db import engine
 from sqlalchemy import text
 from utils.dates import get_current_month_str
 from utils import metrics
+from config import settings
 from typing import Dict, Any, List
 import pandas as pd
 import calendar
+import threading
+import time
 from functools import lru_cache
 
 # Column mapping helpers to normalize possible naming variations in views
@@ -50,6 +53,60 @@ POSSIBLE_COLS = {
     "month": ["month_idx", "Month", "month"],
 }
 
+CONSOLIDATED_TABLE = "stg_consolidated"
+CONSOLIDATED_SELECT_COLS = [
+    ("analyst_email", "analyst_email"),
+    ("tl_name", "tl_name"),
+    ("am", "am"),
+    ("qa_name", "qa_name"),
+    ("category", "category"),
+    ("location", "location"),
+    ("aon_wise", "aon_wise"),
+    ("month", "month"),
+    ("date", "date"),
+    ("total_task", "total_task"),
+    ("total_aht", "total_aht"),
+    ("poa_task", "poa_task"),
+    ("poa_aht", "poa_aht"),
+    ("poa_audits", "poa_audits"),
+    ("poa_error", "poa_error"),
+    ("ext_poa_audits", "ext_poa_audits"),
+    ("ext_poa_error", "ext_poa_error"),
+    ("cre", "cre"),
+    ("crq", "crq"),
+    ("mis_fraud", "mis_fraud"),
+    ("total_fraud", "total_fraud"),
+    ("wrn_fraud", "wrn_fraud"),
+    ("total_clear", "total_clear"),
+    ("ext_extraction", "ext_extraction"),
+    ("ext_ext_error", "ext_ext_error"),
+    ("ext_raw_extraction", "ext_raw_extraction"),
+    ("ext_raw_error", "ext_rawerror"),
+    ("ext_mis_fraud", "ext_mis_fraud"),
+    ("ext_total_fraud", "ext_total_fraud"),
+    ("ext_wrn_fraud", "ext_wrn_fraud"),
+    ("ext_total_clear", "ext_total_clear"),
+    ("ext_manual_far_error", "ext_manual_farerror"),
+    ("ext_manual_far", "ext_manual_far"),
+    ("ext_manual_frr_error", "ext_manual_frrerror"),
+    ("ext_manual_frr", "ext_manual_frr"),
+    ("int_ext_error", "int_ext_error"),
+    ("int_ext_audits", "int_ext_audits"),
+    ("int_raw_ext_error", "int_raw_exterror"),
+    ("int_raw_ext_audits", "int_raw_ext_audits"),
+]
+NUMERIC_KEYS = [
+    "total_task", "total_aht", "poa_task", "poa_aht", "poa_audits", "poa_error",
+    "ext_poa_audits", "ext_poa_error", "cre", "crq", "mis_fraud", "total_fraud",
+    "wrn_fraud", "total_clear", "ext_extraction", "ext_ext_error",
+    "ext_raw_extraction", "ext_raw_error", "ext_mis_fraud", "ext_total_fraud",
+    "ext_wrn_fraud", "ext_total_clear", "ext_manual_far_error", "ext_manual_far",
+    "ext_manual_frr_error", "ext_manual_frr", "int_ext_error", "int_ext_audits",
+    "int_raw_ext_error", "int_raw_ext_audits",
+]
+_SNAPSHOT_LOCK = threading.RLock()
+_CONSOLIDATED_SNAPSHOT: Dict[str, Any] = {"loaded_at": 0.0, "df": None}
+
 
 def resolve_col(df: pd.DataFrame, key: str):
     candidates = POSSIBLE_COLS.get(key, [key])
@@ -92,6 +149,149 @@ def _select_expr(table: str, key: str, alias: str | None = None) -> str:
     return f"{_qident(resolve_table_col(table, key))} AS {_qident(alias or key)}"
 
 
+def _consolidated_select_sql() -> str:
+    return "SELECT " + ", ".join(
+        _select_expr(CONSOLIDATED_TABLE, logical, alias)
+        for logical, alias in CONSOLIDATED_SELECT_COLS
+    ) + f" FROM {CONSOLIDATED_TABLE}"
+
+
+def _normalize_match(value: Any) -> str:
+    text_value = " ".join(str(value or "").strip().lower().split())
+    return text_value.replace("above then 90", "above than 90")
+
+
+def _load_consolidated_df() -> pd.DataFrame:
+    df = pd.read_sql(text(_consolidated_select_sql()), engine)
+    for key in NUMERIC_KEYS:
+        col = resolve_col(df, key)
+        if col:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+    date_col = resolve_col(df, "date")
+    if date_col:
+        values = df[date_col].astype(str).str.strip()
+        parsed = pd.to_datetime(values, format="%d-%b-%y", errors="coerce")
+        missing = parsed.isna()
+        if missing.any():
+            parsed.loc[missing] = pd.to_datetime(values.loc[missing], format="%Y-%m-%d", errors="coerce")
+        missing = parsed.isna()
+        if missing.any():
+            parsed.loc[missing] = pd.to_datetime(values.loc[missing], format="%d/%m/%Y", errors="coerce")
+        df["__date_parsed"] = parsed
+    return df
+
+
+def get_consolidated_snapshot(force_refresh: bool = False) -> pd.DataFrame:
+    ttl = max(1, int(getattr(settings, "CACHE_TTL_SECONDS", 300) or 300))
+    now = time.time()
+    with _SNAPSHOT_LOCK:
+        df = _CONSOLIDATED_SNAPSHOT.get("df")
+        loaded_at = float(_CONSOLIDATED_SNAPSHOT.get("loaded_at") or 0)
+        if force_refresh or df is None or (now - loaded_at) > ttl:
+            df = _load_consolidated_df()
+            _CONSOLIDATED_SNAPSHOT["df"] = df
+            _CONSOLIDATED_SNAPSHOT["loaded_at"] = now
+        return df
+
+
+def refresh_consolidated_snapshot() -> pd.DataFrame:
+    return get_consolidated_snapshot(force_refresh=True)
+
+
+def _latest_month(df: pd.DataFrame) -> str:
+    month_col = resolve_col(df, "month")
+    if not month_col or df.empty:
+        return get_current_month_str()
+    months = [m for m in df[month_col].dropna().astype(str).str.strip().unique().tolist() if m]
+    if not months:
+        return get_current_month_str()
+    return sorted(months, key=_month_sort_key)[-1]
+
+
+def _filter_df(df: pd.DataFrame, filters: Dict[str, Any], include_month: bool) -> pd.DataFrame:
+    if df.empty:
+        return df.copy()
+
+    mask = pd.Series(True, index=df.index)
+
+    date_from = (filters.get("from") or filters.get("date_from") or "").strip()
+    date_to = (filters.get("to") or filters.get("date_to") or "").strip()
+    if "__date_parsed" in df.columns and (date_from or date_to):
+        if date_from:
+            start = pd.to_datetime(date_from, errors="coerce")
+            if pd.notna(start):
+                mask &= df["__date_parsed"] >= start
+        if date_to:
+            end = pd.to_datetime(date_to, errors="coerce")
+            if pd.notna(end):
+                mask &= df["__date_parsed"] <= end
+
+    if include_month:
+        month = filters.get("month") or ""
+        month_col = resolve_col(df, "month")
+        if month and month_col:
+            mask &= df[month_col].astype(str).str.strip() == str(month).strip()
+
+    for logical_col, aliases in [
+        ("analyst_email", ["analyst", "AnalystEmail", "analyst_email"]),
+        ("tl_name", ["tl", "TLName", "tl_name"]),
+        ("am", ["am", "AM"]),
+        ("qa_name", ["qa", "QAName", "qa_name"]),
+        ("category", ["category", "Category"]),
+        ("location", ["location", "Location"]),
+        ("aon_wise", ["aon_wise", "AONWise", "aon"]),
+    ]:
+        value = ""
+        for alias in aliases:
+            candidate = filters.get(alias)
+            if candidate is not None and str(candidate).strip():
+                value = str(candidate).strip()
+                break
+        if not value:
+            continue
+        col = resolve_col(df, logical_col)
+        if col:
+            mask &= df[col].map(_normalize_match) == _normalize_match(value)
+
+    return df.loc[mask].copy()
+
+
+def get_init_data(force_refresh: bool = False) -> Dict[str, Any]:
+    df = get_consolidated_snapshot(force_refresh=force_refresh)
+    filters: Dict[str, Any] = {}
+    for logical_col, key in [
+        ("analyst_email", "analysts"),
+        ("tl_name", "tls"),
+        ("am", "ams"),
+        ("qa_name", "qas"),
+        ("category", "categories"),
+        ("aon_wise", "aons"),
+        ("location", "locations"),
+        ("month", "months"),
+    ]:
+        col = resolve_col(df, logical_col)
+        if not col:
+            filters[key] = []
+            continue
+        values = df[col].dropna().astype(str).str.strip()
+        filters[key] = sorted([v for v in values.unique().tolist() if v], key=lambda v: _month_sort_key(v) if key == "months" else str(v).lower())
+
+    date_col = resolve_col(df, "date")
+    parsed = df["__date_parsed"].dropna() if "__date_parsed" in df.columns else pd.Series([], dtype="datetime64[ns]")
+    min_date = parsed.min().strftime("%Y-%m-%d") if not parsed.empty else (str(df[date_col].min()) if date_col else "")
+    max_date = parsed.max().strftime("%Y-%m-%d") if not parsed.empty else (str(df[date_col].max()) if date_col else "")
+    return {
+        "success": True,
+        "filters": filters,
+        "totalRows": int(len(df)),
+        "minDate": min_date,
+        "maxDate": max_date,
+        "currentMonth": _latest_month(df),
+        "source": "SQL Server",
+        "snapshotLoadedAt": _CONSOLIDATED_SNAPSHOT.get("loaded_at"),
+    }
+
+
 def _sum(df: pd.DataFrame, key: str):
     col = resolve_col(df, key)
     if col and not df.empty:
@@ -129,118 +329,23 @@ def _group_agg(df: pd.DataFrame, group_key: str, sum_keys: List[str]) -> List[Di
 
 
 def get_dashboard_data(filters: Dict[str, Any]) -> Dict[str, Any]:
-    def fval(*keys):
-        for key in keys:
-            value = filters.get(key)
-            if value is not None and str(value).strip():
-                return str(value).strip()
-        return ""
-
+    filters = dict(filters or {})
     date_from = (filters.get("from") or filters.get("date_from") or "").strip()
     date_to = (filters.get("to") or filters.get("date_to") or "").strip()
     has_date_range = bool(date_from or date_to)
     month = filters.get("month") or ""
     view_mode = filters.get("viewMode", "daily")
-    table_name = "stg_consolidated"
+    force_refresh = str(filters.get("forceRefresh") or "").lower() in ("1", "true", "yes")
+    source_df = get_consolidated_snapshot(force_refresh=force_refresh)
 
     if not month and not has_date_range:
-        from db import fetch_one
-        month_lookup_col = _qident(resolve_table_col(table_name, "month"))
-        try:
-            latest = fetch_one(f"SELECT MAX({month_lookup_col}) as latest_month FROM {table_name}", {})
-            month = latest["latest_month"] if latest and latest.get("latest_month") else get_current_month_str()
-        except Exception:
-            month = get_current_month_str()
+        month = _latest_month(source_df)
 
-    base_where = ["1=1"]
-    where_clauses = ["1=1"]
-    params: Dict[str, Any] = {}
-    all_params: Dict[str, Any] = {}
-
-    month_col = resolve_table_col(table_name, "month")
     if month:
-        where_clauses.append(f"{_qident(month_col)} = :month")
-        params["month"] = month
+        filters["month"] = month
 
-    date_col = _qident(resolve_table_col(table_name, "date"))
-    date_expr = f"COALESCE(TRY_CONVERT(date, {date_col}, 23), TRY_CONVERT(date, {date_col}, 106), TRY_CONVERT(date, {date_col}))"
-    if date_from:
-        where_clauses.append(f"{date_expr} >= TRY_CONVERT(date, :date_from, 23)")
-        base_where.append(f"{date_expr} >= TRY_CONVERT(date, :date_from, 23)")
-        params["date_from"] = date_from
-        all_params["date_from"] = date_from
-    if date_to:
-        where_clauses.append(f"{date_expr} <= TRY_CONVERT(date, :date_to, 23)")
-        base_where.append(f"{date_expr} <= TRY_CONVERT(date, :date_to, 23)")
-        params["date_to"] = date_to
-        all_params["date_to"] = date_to
-
-    for api_key, logical_col, aliases in [
-        ("analyst", "analyst_email", ["analyst", "AnalystEmail", "analyst_email"]),
-        ("tl", "tl_name", ["tl", "TLName", "tl_name"]),
-        ("am", "am", ["am", "AM"]),
-        ("qa", "qa_name", ["qa", "QAName", "qa_name"]),
-        ("category", "category", ["category", "Category"]),
-        ("location", "location", ["location", "Location"]),
-        ("aon_wise", "aon_wise", ["aon_wise", "AONWise", "aon"]),
-    ]:
-        val = fval(*aliases)
-        if val and str(val).strip():
-            db_col = _qident(resolve_table_col(table_name, logical_col))
-            where_clauses.append(f"{db_col} = :{api_key}")
-            base_where.append(f"{db_col} = :{api_key}")
-            params[api_key] = val
-            all_params[api_key] = val
-
-    select_cols = [
-        ("analyst_email", "analyst_email"),
-        ("tl_name", "tl_name"),
-        ("am", "am"),
-        ("qa_name", "qa_name"),
-        ("category", "category"),
-        ("location", "location"),
-        ("aon_wise", "aon_wise"),
-        ("month", "month"),
-        ("date", "date"),
-        ("total_task", "total_task"),
-        ("total_aht", "total_aht"),
-        ("poa_task", "poa_task"),
-        ("poa_aht", "poa_aht"),
-        ("poa_audits", "poa_audits"),
-        ("poa_error", "poa_error"),
-        ("ext_poa_audits", "ext_poa_audits"),
-        ("ext_poa_error", "ext_poa_error"),
-        ("cre", "cre"),
-        ("crq", "crq"),
-        ("mis_fraud", "mis_fraud"),
-        ("total_fraud", "total_fraud"),
-        ("wrn_fraud", "wrn_fraud"),
-        ("total_clear", "total_clear"),
-        ("ext_extraction", "ext_extraction"),
-        ("ext_ext_error", "ext_ext_error"),
-        ("ext_raw_extraction", "ext_raw_extraction"),
-        ("ext_raw_error", "ext_raw_error"),
-        ("ext_mis_fraud", "ext_mis_fraud"),
-        ("ext_total_fraud", "ext_total_fraud"),
-        ("ext_wrn_fraud", "ext_wrn_fraud"),
-        ("ext_total_clear", "ext_total_clear"),
-        ("ext_manual_far_error", "ext_manual_farerror"),
-        ("ext_manual_far", "ext_manual_far"),
-        ("ext_manual_frr_error", "ext_manual_frrerror"),
-        ("ext_manual_frr", "ext_manual_frr"),
-        ("int_ext_error", "int_ext_error"),
-        ("int_ext_audits", "int_ext_audits"),
-        ("int_raw_ext_error", "int_raw_exterror"),
-        ("int_raw_ext_audits", "int_raw_ext_audits"),
-    ]
-    select_sql = "SELECT " + ", ".join(
-        _select_expr(table_name, logical, alias) for logical, alias in select_cols
-    ) + f" FROM {table_name} WHERE "
-
-    sql = text(select_sql + ' AND '.join(where_clauses))
-    all_sql = text(select_sql + ' AND '.join(base_where))
-    df = pd.read_sql(sql, engine, params=params)
-    all_df = pd.read_sql(all_sql, engine, params=all_params)
+    all_df = _filter_df(source_df, filters, include_month=False)
+    df = _filter_df(source_df, filters, include_month=True)
 
     return metrics.sanitize_dict({
         "success": True,
@@ -394,6 +499,30 @@ def _poa_month_label(row: pd.Series, month_col: str | None, date_col: str | None
     return ""
 
 
+def _poa_month_record(label: Any, sums: pd.Series) -> Dict[str, Any]:
+    poa_task = float(sums.get("poa_task", 0) or 0)
+    poa_aht = float(sums.get("poa_aht", 0) or 0)
+    poa_audits = float(sums.get("poa_audits", 0) or 0)
+    poa_error = float(sums.get("poa_error", 0) or 0)
+    ext_audits = float(sums.get("ext_poa_audits", 0) or 0)
+    ext_error = float(sums.get("ext_poa_error", 0) or 0)
+    poa_avg = round(metrics.calc_poa_avg_aht(poa_aht, poa_task), 2) if poa_task else 0
+    poa_err = metrics.safe_div(poa_error, poa_audits)
+    ext_poa = metrics.safe_div(ext_error, ext_audits)
+    return {
+        "key": metrics.to_native(label),
+        "name": metrics.to_native(label),
+        "totalPoaTask": int(poa_task),
+        "POA_Task": int(poa_task),
+        "POA_AHT": poa_avg,
+        "POA_Avg_AHT": poa_avg,
+        "POA_Error_Pct": poa_err,
+        "POA_Err_r": poa_err,
+        "Ext_POA_Error_Pct": ext_poa,
+        "Ext_POA_r": ext_poa,
+    }
+
+
 def _build_poa_entity_month_detail(df: pd.DataFrame, group_key: str, limit: int | None = None) -> List[Dict[str, Any]]:
     group_col = resolve_col(df, group_key)
     month_col = resolve_col(df, "month")
@@ -401,42 +530,61 @@ def _build_poa_entity_month_detail(df: pd.DataFrame, group_key: str, limit: int 
     if df.empty or not group_col:
         return []
 
-    month_labels = set()
-    for _, row in df.iterrows():
-        label = _poa_month_label(row, month_col, date_col)
-        if label:
-            month_labels.add(label)
+    work = df.copy()
+    if month_col:
+        month_labels_series = work[month_col].fillna("").astype(str).str.strip()
+    else:
+        month_labels_series = pd.Series([""] * len(work), index=work.index)
+    if date_col:
+        missing_month = month_labels_series == ""
+        if missing_month.any():
+            parsed_dates = pd.to_datetime(work.loc[missing_month, date_col], errors="coerce")
+            month_labels_series.loc[missing_month] = parsed_dates.dt.strftime("%b-%y").fillna("")
+    work["__poa_month"] = month_labels_series
+
+    month_labels = set(work.loc[work["__poa_month"] != "", "__poa_month"].tolist())
     months = sorted(month_labels, key=_month_sort_key)
 
+    poa_cols = [
+        c for c in [
+            resolve_col(work, "poa_task"),
+            resolve_col(work, "poa_aht"),
+            resolve_col(work, "poa_audits"),
+            resolve_col(work, "poa_error"),
+            resolve_col(work, "ext_poa_audits"),
+            resolve_col(work, "ext_poa_error"),
+        ] if c
+    ]
+    for col in poa_cols:
+        work[col] = pd.to_numeric(work[col], errors="coerce").fillna(0)
+
+    monthly_lookup: Dict[tuple[Any, str], Dict[str, Any]] = {}
+    if months and poa_cols:
+        month_work = work[work["__poa_month"] != ""]
+        month_sums = month_work.groupby([group_col, "__poa_month"], dropna=True)[poa_cols].sum()
+        for (entity, month), sums in month_sums.iterrows():
+            monthly_lookup[(entity, month)] = _poa_month_record(month, sums)
+
     rows: List[Dict[str, Any]] = []
-    for label, grp in df.groupby(group_col):
+    if not poa_cols:
+        return rows
+    total_sums = work.groupby(group_col, dropna=True)[poa_cols].sum()
+    for label, sums in total_sums.iterrows():
         if label is None or str(label).strip() == "":
             continue
-        total = _summary_from_df(grp, metrics.to_native(label), "name")
-        row = {
-            "key": metrics.to_native(label),
-            "name": metrics.to_native(label),
-            "totalPoaTask": total.get("POA_Task", 0),
-            "POA_Task": total.get("POA_Task", 0),
-            "POA_Avg_AHT": total.get("POA_Avg_AHT", 0),
-            "POA_Error_Pct": total.get("POA_Err_r", 0),
-            "Ext_POA_Error_Pct": total.get("Ext_POA_r", 0),
-            "months": {},
-        }
-        if month_col or date_col:
-            for month in months:
-                mask = grp.apply(lambda r: _poa_month_label(r, month_col, date_col) == month, axis=1)
-                month_grp = grp[mask]
-                q = _summary_from_df(month_grp, month, "Month") if not month_grp.empty else {}
-                row["months"][month] = {
-                    "POA_Task": q.get("POA_Task", 0),
-                    "POA_AHT": q.get("POA_AHT", 0),
-                    "POA_Avg_AHT": q.get("POA_Avg_AHT", 0),
-                    "POA_Err_r": q.get("POA_Err_r", 0),
-                    "POA_Error_Pct": q.get("POA_Err_r", 0),
-                    "Ext_POA_r": q.get("Ext_POA_r", 0),
-                    "Ext_POA_Error_Pct": q.get("Ext_POA_r", 0),
-                }
+        row = _poa_month_record(label, sums)
+        row["months"] = {}
+        for month in months:
+            q = monthly_lookup.get((label, month), {})
+            row["months"][month] = {
+                "POA_Task": q.get("POA_Task", 0),
+                "POA_AHT": q.get("POA_AHT", 0),
+                "POA_Avg_AHT": q.get("POA_Avg_AHT", 0),
+                "POA_Err_r": q.get("POA_Err_r", 0),
+                "POA_Error_Pct": q.get("POA_Err_r", 0),
+                "Ext_POA_r": q.get("Ext_POA_r", 0),
+                "Ext_POA_Error_Pct": q.get("Ext_POA_r", 0),
+            }
         rows.append(row)
 
     rows.sort(key=lambda r: (-float(r.get("totalPoaTask") or 0), str(r.get("name") or "")))

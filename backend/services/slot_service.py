@@ -1,6 +1,7 @@
 from db import fetch_all
 from typing import Dict, Any
 from filtering import apply_filters, enrich_rows_with_filter_metadata, has_dimension_filters
+from services.sql_snapshot import get_rows
 
 def _analytics(rows: list[dict], source: str) -> Dict[str, Any]:
     latest_sync = ""
@@ -17,15 +18,16 @@ def _analytics(rows: list[dict], source: str) -> Dict[str, Any]:
     }
 
 def get_slot_utilization(filters: Dict[str, Any]) -> Dict[str, Any]:
+    force_refresh = bool((filters or {}).get("forceRefresh"))
     slot_perf = []
     util = []
     try:
-        slot_perf = fetch_all("SELECT * FROM vw_slot_wise_performance ORDER BY bst_slot, ist_slot")
+        slot_perf = get_rows("vw_slot_wise_performance", "SELECT * FROM vw_slot_wise_performance ORDER BY bst_slot, ist_slot", force_refresh)
     except Exception:
         slot_perf = []
 
     try:
-        util = fetch_all("SELECT * FROM vw_utilization ORDER BY analyst_email")
+        util = get_rows("vw_utilization", "SELECT * FROM vw_utilization ORDER BY analyst_email", force_refresh)
     except Exception:
         util = []
 

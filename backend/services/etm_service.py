@@ -1,8 +1,9 @@
 import os
-from db import fetch_all
+import json
 from typing import Dict, Any
 from datetime import datetime, timedelta
-from filtering import apply_filters, enrich_rows_with_filter_metadata, has_dimension_filters
+from filtering import apply_filters, enrich_rows_with_filter_metadata, filter_value, has_dimension_filters
+from services.sql_snapshot import get_rows
 
 def _count_month_day(rows: list, month_col: str = "month", date_col: str = "date") -> Dict[str, Any]:
     """Count rows by current month and yesterday from text date fields."""
@@ -39,19 +40,60 @@ def _count_month_day(rows: list, month_col: str = "month", date_col: str = "date
     }
 
 
+def _filtered_query(base_sql: str, filters: Dict[str, Any] | None, columns: Dict[str, str]) -> tuple[str, dict, str]:
+    filters = filters or {}
+    clauses = []
+    params: Dict[str, Any] = {}
+    for filter_key, column in columns.items():
+        value = ""
+        if filter_key == "month":
+            value = filter_value(filters, "month", "Month")
+        elif filter_key == "am":
+            value = filter_value(filters, "am", "AM")
+        elif filter_key == "tl":
+            value = filter_value(filters, "tl", "TLName", "tl_name")
+        elif filter_key == "aon_wise":
+            value = filter_value(filters, "aon_wise", "AONWise", "aon")
+        if value:
+            clauses.append(f"{column} = :{filter_key}")
+            params[filter_key] = value
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    cache_suffix = json.dumps(params, sort_keys=True, default=str)
+    return f"{base_sql}{where} ORDER BY date DESC", params, cache_suffix
+
+
 def get_etm_data(filters: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    force_refresh = bool((filters or {}).get("forceRefresh"))
+    has_month = bool(filter_value(filters, "month", "Month"))
+    doc_cols = {"month": "month_idx"} if has_month else {"month": "month_idx", "am": "am_name", "tl": "tl_name", "aon_wise": "aon"}
+    skip_cols = {"month": "month_idx"} if has_month else {"month": "month_idx", "am": "am_s_name", "tl": "tl_s_name"}
     try:
-        doc_etm = fetch_all("SELECT * FROM vw_doc_etm ORDER BY date DESC")
+        sql, params, suffix = _filtered_query(
+            "SELECT * FROM vw_doc_etm",
+            filters,
+            doc_cols,
+        )
+        doc_etm = get_rows("vw_doc_etm:" + suffix, sql, force_refresh, params)
     except Exception:
         doc_etm = []
 
     try:
-        poa_etm = fetch_all("SELECT * FROM vw_poa_etm ORDER BY date DESC")
+        sql, params, suffix = _filtered_query(
+            "SELECT * FROM vw_poa_etm",
+            filters,
+            doc_cols,
+        )
+        poa_etm = get_rows("vw_poa_etm:" + suffix, sql, force_refresh, params)
     except Exception:
         poa_etm = []
 
     try:
-        task_skip = fetch_all("SELECT * FROM vw_doc_task_skip ORDER BY date DESC")
+        sql, params, suffix = _filtered_query(
+            "SELECT * FROM vw_doc_task_skip",
+            filters,
+            skip_cols,
+        )
+        task_skip = get_rows("vw_doc_task_skip:" + suffix, sql, force_refresh, params)
     except Exception:
         task_skip = []
 

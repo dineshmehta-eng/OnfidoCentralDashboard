@@ -2,6 +2,7 @@ import logging
 import json
 import os
 import sys
+import threading
 
 # Ensure backend/ is on sys.path so absolute sibling imports work when run via uvicorn
 _backend_dir = os.path.dirname(os.path.abspath(__file__))
@@ -21,8 +22,10 @@ from cachetools import TTLCache
 
 from config import settings
 from db import fetch_all, fetch_one, check_db_objects
+from filtering import clear_filter_metadata, warm_filter_metadata
 from utils.dates import get_current_month_str
 from services import dashboard_service, etm_service, live_service, slot_service, analyst_service
+from services.sql_snapshot import clear as clear_sql_snapshots, get_rows as get_snapshot_rows, warm as warm_sql_rows
 from middleware.auth import APIKeyMiddleware
 from middleware.cache import CacheControlMiddleware
 from middleware.logging import RequestLogMiddleware
@@ -45,6 +48,30 @@ def startup_event():
     if use_mock:
         logger.info("Skipping SQL dashboard pre-warm in MOCK mode")
         return
+    def warm_sql_snapshot():
+        try:
+            logger.info("Warming SQL consolidated snapshot in background...")
+            dashboard_service.refresh_consolidated_snapshot()
+            warm_filter_metadata()
+            current_month = dashboard_service.get_init_data().get("currentMonth") or get_current_month_str()
+            etm_service.get_etm_data({"month": current_month})
+            get_snapshot_rows(
+                "vw_agent_wise_" + json.dumps({"month": current_month}, sort_keys=True),
+                "SELECT * FROM vw_agent_wise WHERE LTRIM(RTRIM(month)) = :month",
+                False,
+                {"month": current_month},
+            )
+            warm_sql_rows([
+                ("vw_audits", "SELECT * FROM vw_audits ORDER BY synced_at DESC"),
+                ("vw_poa_live", "SELECT * FROM vw_poa_live ORDER BY synced_at DESC"),
+                ("vw_apr", "SELECT * FROM vw_apr ORDER BY synced_at DESC"),
+                ("vw_slot_wise_performance", "SELECT * FROM vw_slot_wise_performance ORDER BY bst_slot, ist_slot"),
+                ("vw_utilization", "SELECT * FROM vw_utilization ORDER BY analyst_email"),
+            ])
+            logger.info("SQL consolidated snapshot ready")
+        except Exception as e:
+            logger.warning(f"SQL consolidated snapshot warm-up failed: {e}")
+    threading.Thread(target=warm_sql_snapshot, daemon=True).start()
     if os.getenv("PREWARM_DASHBOARD", "false").lower() not in ("1", "true", "yes"):
         logger.info("Skipping blocking SQL dashboard pre-warm")
         return
@@ -114,51 +141,15 @@ def health():
         return JSONResponse(status_code=503, content={"success": False, "error": str(e)})
 
 @app.get("/api/init")
-def init_data():
+def init_data(forceRefresh: bool = Query(False)):
     if use_mock:
         return mock_store.get_init()
     try:
-        filters = {}
-        for col, key in [
-            ("Analyst_Email", "analysts"),
-            ("TL_Name", "tls"),
-            ("AM", "ams"),
-            ("QA_Name", "qas"),
-            ("Category", "categories"),
-            ("AON_Wise", "aons"),
-            ("Location", "locations"),
-            ("Month", "months"),
-        ]:
-            try:
-                rows = fetch_all(f"SELECT DISTINCT {col} FROM vw_dashboard_consolidated WHERE {col} IS NOT NULL ORDER BY {col}")
-                filters[key] = [r.get(col) for r in rows if r.get(col) is not None]
-            except Exception as e:
-                logger.warning(f"Could not load filter {col}: {e}")
-                filters[key] = []
-
-        total_rows = fetch_all("SELECT COUNT(*) AS cnt FROM vw_dashboard_consolidated")[0].get("cnt", 0)
-        date_range = fetch_all("SELECT MIN(Date) AS minDate, MAX(Date) AS maxDate FROM vw_dashboard_consolidated")
-        dr = date_range[0] if date_range else {}
-        latest_month_rows = fetch_all("""
-            SELECT TOP 1 Month
-            FROM vw_dashboard_consolidated
-            WHERE Month IS NOT NULL
-            ORDER BY TRY_CONVERT(date, Date, 106) DESC
-        """)
-        current_month = (
-            latest_month_rows[0].get("Month")
-            if latest_month_rows and latest_month_rows[0].get("Month")
-            else get_current_month_str()
-        )
-        return {
-            "success": True,
-            "filters": filters,
-            "totalRows": total_rows,
-            "minDate": dr.get("minDate"),
-            "maxDate": dr.get("maxDate"),
-            "currentMonth": current_month,
-            "source": "SQL Server"
-        }
+        if forceRefresh:
+            cache.clear()
+            clear_sql_snapshots()
+            clear_filter_metadata()
+        return dashboard_service.get_init_data(force_refresh=forceRefresh)
     except Exception as e:
         logger.error(f"Init failed: {e}")
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
@@ -168,6 +159,10 @@ def dashboard(filters: dict = Body(default={})):
     if use_mock:
         return mock_store.get_dashboard(filters)
     try:
+        if filters.get("forceRefresh"):
+            cache.clear()
+            clear_sql_snapshots()
+            clear_filter_metadata()
         cache_key = "dashboard_" + json.dumps(filters, sort_keys=True, default=str)
         if cache_key in cache:
             return cache[cache_key]
@@ -198,6 +193,10 @@ def etm_post(filters: dict = Body(default={})):
     if use_mock:
         return mock_store.get_etm(filters)
     try:
+        if filters.get("forceRefresh"):
+            cache.clear()
+            clear_sql_snapshots()
+            clear_filter_metadata()
         cache_key = "etm_" + json.dumps(filters, sort_keys=True, default=str)
         if cache_key in cache:
             return cache[cache_key]
@@ -223,6 +222,10 @@ def live_dashboard(filters: dict = Body(default={})):
     if use_mock:
         return mock_store.get_live(filters)
     try:
+        if filters.get("forceRefresh"):
+            cache.clear()
+            clear_sql_snapshots()
+            clear_filter_metadata()
         cache_key = "live_" + json.dumps(filters, sort_keys=True, default=str)
         if cache_key in cache:
             cached = cache[cache_key]
@@ -242,6 +245,10 @@ def slot_utilization(filters: dict = Body(default={})):
     if use_mock:
         return mock_store.get_slot_util(filters)
     try:
+        if filters.get("forceRefresh"):
+            cache.clear()
+            clear_sql_snapshots()
+            clear_filter_metadata()
         cache_key = "slot_" + json.dumps(filters, sort_keys=True, default=str)
         if cache_key in cache:
             return cache[cache_key]
@@ -257,11 +264,28 @@ def attrition(filters: dict = Body(default={})):
     if use_mock:
         return mock_store.get_attrition(filters)
     try:
+        if filters.get("forceRefresh"):
+            cache.clear()
+            clear_sql_snapshots()
+            clear_filter_metadata()
         cache_key = "attrition_" + json.dumps(filters, sort_keys=True, default=str)
         if cache_key in cache:
             return cache[cache_key]
-        rows = fetch_all("SELECT * FROM vw_agent_wise")
-        from filtering import apply_filters, enrich_rows_with_filter_metadata, has_dimension_filters
+        from filtering import apply_filters, enrich_rows_with_filter_metadata, filter_value, has_dimension_filters
+        sql = "SELECT * FROM vw_agent_wise"
+        clauses = []
+        params = {}
+        month = filter_value(filters, "month", "Month")
+        aon = filter_value(filters, "aon_wise", "AONWise", "aon")
+        if month:
+            clauses.append("LTRIM(RTRIM(month)) = :month")
+            params["month"] = month
+        if aon:
+            clauses.append("REPLACE(LOWER(LTRIM(RTRIM(aon))), 'above then 90', 'above than 90') = :aon")
+            params["aon"] = str(aon).strip().lower().replace("above then 90", "above than 90")
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        rows = get_snapshot_rows("vw_agent_wise_" + json.dumps(params, sort_keys=True), sql, bool(filters.get("forceRefresh")), params)
         if has_dimension_filters(filters):
             rows = enrich_rows_with_filter_metadata(rows)
         rows = apply_filters(rows, filters)
