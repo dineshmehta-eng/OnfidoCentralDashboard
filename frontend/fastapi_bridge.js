@@ -701,7 +701,21 @@
   async function analystSearch(args){
     var q = text(args && args[0]);
     if(!q) return {success:false, error:"No analyst selected."};
-    return json("/api/analyst-search?email=" + encodeURIComponent(q));
+    var f = Object.assign({}, window._f || {}, (args && typeof args[1] === "object" ? args[1] : {}));
+    var params = ["email=" + encodeURIComponent(q)];
+    [
+      ["from", f.from || f.date_from || ""],
+      ["to", f.to || f.date_to || ""],
+      ["am", f.AM || f.am || ""],
+      ["tl", f.TLName || f.tl || ""],
+      ["qa", f.QAName || f.qa || ""],
+      ["category", f.Category || f.category || ""],
+      ["aon_wise", f.AONWise || f.aon_wise || ""],
+      ["month", f.month || ""]
+    ].forEach(function(pair){
+      if(pair[1]) params.push(pair[0] + "=" + encodeURIComponent(pair[1]));
+    });
+    return json("/api/analyst-search?" + params.join("&"));
   }
   async function warm(forceRefresh){
     if(forceRefresh) apiCache = {};

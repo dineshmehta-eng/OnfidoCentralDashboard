@@ -208,11 +208,34 @@ def etm_post(filters: dict = Body(default={})):
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
 @app.get("/api/analyst-search")
-def analyst_search(email: str = Query(...)):
+def analyst_search(
+    email: str = Query(...),
+    month: str = Query(""),
+    from_date: str = Query("", alias="from"),
+    to_date: str = Query("", alias="to"),
+    date_from: str = Query(""),
+    date_to: str = Query(""),
+    am: str = Query(""),
+    tl: str = Query(""),
+    qa: str = Query(""),
+    category: str = Query(""),
+    aon_wise: str = Query(""),
+    aon: str = Query(""),
+):
     if use_mock:
         return mock_store.search_analyst(email)
     try:
-        return analyst_service.search_analyst(email)
+        filters = {
+            "month": month,
+            "from": from_date or date_from,
+            "to": to_date or date_to,
+            "am": am,
+            "tl": tl,
+            "qa": qa,
+            "category": category,
+            "aon_wise": aon_wise or aon,
+        }
+        return analyst_service.search_analyst(email, filters)
     except Exception as e:
         logger.error(f"Analyst search error: {e}")
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})

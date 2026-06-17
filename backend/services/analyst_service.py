@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import datetime
+from difflib import SequenceMatcher
 from typing import Any, Dict, Iterable, List
 
 from db import fetch_all
@@ -268,25 +269,111 @@ def _fetch_consolidated(where: str = "", params: Dict[str, Any] | None = None) -
         return fetch_all(fallback, params)
 
 
-def search_analyst(email: str) -> Dict[str, Any]:
+def _compact(value: Any, keep_digits: bool = True) -> str:
+    text = str(value or "").lower()
+    if "@" in text:
+        text = text.split("@", 1)[0]
+    chars = []
+    for ch in text:
+        if ch.isalpha() or (keep_digits and ch.isdigit()):
+            chars.append(ch)
+    return "".join(chars)
+
+
+def _search_score(candidate: Any, query: Any) -> float:
+    cand = str(candidate or "").strip().lower()
+    qry = str(query or "").strip().lower()
+    if not cand or not qry:
+        return 0
+    cand_local = cand.split("@", 1)[0]
+    qry_local = qry.split("@", 1)[0]
+    cand_compact = _compact(cand_local)
+    qry_compact = _compact(qry_local)
+    cand_name = _compact(cand_local, keep_digits=False)
+    qry_name = _compact(qry_local, keep_digits=False)
+    if cand == qry:
+        return 120
+    if cand_local == qry_local:
+        return 115
+    if cand_compact and cand_compact == qry_compact:
+        return 110
+    if cand_name and cand_name == qry_name:
+        return 108
+    if qry in cand or qry_local in cand_local:
+        return 96
+    if qry_compact and qry_compact in cand_compact:
+        return 92
+    if qry_name and qry_name in cand_name:
+        return 90
+    words = [w for w in qry.replace(".", " ").replace("_", " ").replace("-", " ").split() if w]
+    if words and all(word in cand_local for word in words):
+        return 88
+    if qry_name and cand_name:
+        ratio = SequenceMatcher(None, qry_name, cand_name).ratio()
+        if ratio >= 0.82:
+            return 70 + (ratio * 15)
+    return 0
+
+
+def _snapshot_rows() -> List[Dict[str, Any]]:
+    try:
+        from services import dashboard_service
+
+        df = dashboard_service.get_consolidated_snapshot()
+        return df.to_dict("records")
+    except Exception:
+        return _fetch_consolidated()
+
+
+def _resolve_analyst(query: str, rows: List[Dict[str, Any]]) -> str:
+    emails = sorted({str(_pick(row, "analyst", "")).strip() for row in rows if str(_pick(row, "analyst", "")).strip()})
+    best_email = ""
+    best_score = 0.0
+    for email in emails:
+        score = _search_score(email, query)
+        if score > best_score:
+            best_email = email
+            best_score = score
+    return best_email if best_score >= 82 else ""
+
+
+def _same_analyst(value: Any, email: str) -> bool:
+    left = str(value or "").strip().lower()
+    right = str(email or "").strip().lower()
+    return left == right or left.split("@", 1)[0] == right.split("@", 1)[0]
+
+
+def _filter_rows(rows: List[Dict[str, Any]], filters: Dict[str, Any] | None) -> List[Dict[str, Any]]:
+    filters = filters or {}
+    if not filters:
+        return rows
+
+    from filtering import filter_value, row_matches_filters
+
+    month = filter_value(filters, "month", "Month")
+    scoped = []
+    for row in rows:
+        if month and str(_pick(row, "month", "")).strip() != month:
+            continue
+        if not row_matches_filters(row, filters):
+            continue
+        scoped.append(row)
+    return scoped
+
+
+def search_analyst(email: str, filters: Dict[str, Any] | None = None) -> Dict[str, Any]:
     query = str(email or "").strip()
     if not query:
         return {"success": False, "error": "No email."}
 
-    candidate_rows = _fetch_consolidated("Analyst_Email LIKE :email", {"email": f"%{query}%"})
-    if not candidate_rows:
+    all_rows = _snapshot_rows()
+    main_email = _resolve_analyst(query, all_rows)
+    if not main_email:
         return {"success": False, "error": "Analyst not found for this Onfido Mail ID / Analyst Email."}
 
-    def same_local(value: Any) -> bool:
-        left = str(value or "").lower().split("@")[0]
-        right = query.lower().split("@")[0]
-        return left == right or str(value or "").lower() == query.lower()
-
-    first = next((row for row in candidate_rows if same_local(_pick(row, "analyst"))), candidate_rows[0])
-    main_email = str(_pick(first, "analyst", query))
-    rows = _fetch_consolidated("Analyst_Email = :email", {"email": main_email})
-    if not rows:
-        rows = [row for row in candidate_rows if same_local(_pick(row, "analyst"))]
+    analyst_rows = [row for row in all_rows if _same_analyst(_pick(row, "analyst"), main_email)]
+    rows = _filter_rows(analyst_rows, filters)
+    first = (rows or analyst_rows)[0]
 
     metric = _metrics(rows)
     tl = str(_pick(first, "tl", ""))
@@ -295,7 +382,8 @@ def search_analyst(email: str) -> Dict[str, Any]:
     aon = str(_pick(first, "aon", ""))
     category = str(_pick(first, "category", ""))
 
-    peer_rows = _fetch_consolidated("TL_Name = :tl", {"tl": tl}) if tl else rows
+    peer_rows = [row for row in all_rows if str(_pick(row, "tl", "")).strip() == tl] if tl else analyst_rows
+    peer_rows = _filter_rows(peer_rows, filters)
     ranking = []
     for analyst, items in _group(peer_rows, "analyst").items():
         m = _metrics(items)
